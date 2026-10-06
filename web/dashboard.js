@@ -42,3 +42,24 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if
 $('#export-report').onclick=()=>{if(!report)return;const blob=new Blob([JSON.stringify(report,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='Trading-Logic-Research-'+report.report_id+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
 $('#ai-form').onsubmit=async e=>{e.preventDefault();if(!report)return;const id=report.report_id;$('#summarize').disabled=true;$('#ai-status').textContent='Reading the report with your local model…';try{const result=await request('/api/summary',{model:$('#model').value,report_id:id});if(report.report_id!==result.report_id){$('#ai-status').textContent='Report changed; the older commentary was discarded.';return}$('#ai-summary').textContent=result.notes.summary;list($('#ai-risks'),result.notes.risks);list($('#ai-checks'),result.notes.next_checks);$('#ai-notes').hidden=false;$('#ai-status').textContent='Local model: '+result.notes.model+'. Commentary is unverified and has no execution authority.'}catch(err){$('#ai-status').textContent=err.message}finally{$('#summarize').disabled=false}};
 $('#summarize').disabled=true;request('/api/report').then(r=>{report=r;render()}).catch(e=>error('Could not load the local research server. Run start-scout.bat and open http://127.0.0.1:8002. '+e.message));
+
+$('#training-report').onchange=async()=>{
+ const file=$('#training-report').files[0];if(!file)return;
+ $('#training-results').hidden=true;
+ try{
+  if(file.size>10000000)throw Error('Use a training report below 10 MB.');
+  const r=JSON.parse(await file.text()),finite=n=>typeof n==='number'&&Number.isFinite(n);
+  if(r.version!=='0.2.0'||!Array.isArray(r.episodes)||r.episodes.length>2000||!Array.isArray(r.validation_candidates)||r.validation_candidates.length>5||!r.test||!r.split||!r.test_baselines||!finite(r.test.net_profit)||!finite(r.test.max_drawdown_pct)||!finite(r.selected_episode))throw Error('This is not a supported training report.json.');
+  for(const row of r.episodes)if(!['episode','reward','net_return_pct','epsilon','states'].every(k=>finite(row[k])))throw Error('Invalid training episode data.');
+  for(const c of r.validation_candidates)if(!c.metrics||!['net_return_pct','max_drawdown_pct','score'].every(k=>finite(c.metrics[k])))throw Error('Invalid validation metrics.');
+  for(const m of Object.values(r.test_baselines))if(!['net_return_pct','max_drawdown_pct','fill_count'].every(k=>finite(m[k])))throw Error('Invalid baseline metrics.');
+  const coverage=r.test.policy_coverage;if(!coverage||!finite(coverage.seen_decisions)||!finite(coverage.unseen_decisions)||!finite(r.test.net_return_pct)||!finite(r.test.fill_count))throw Error('Missing policy evaluation metrics.');
+  $('#training-net').textContent=money(r.test.net_profit);tone($('#training-net'),r.test.net_profit);$('#training-dd').textContent=r.test.max_drawdown_pct.toFixed(2)+'%';$('#training-pick').textContent=r.selected_episode===0?'CASH':String(r.selected_episode);
+  const count=coverage.seen_decisions+coverage.unseen_decisions;$('#training-unseen').textContent=count?(100*coverage.unseen_decisions/count).toFixed(0)+'%':'—';
+  $('#training-context').textContent=(r.source==='synthetic_demo'?'INVENTED DEMO. No profitability evidence. ':'IMPORTED DATA. Provenance unverified. ')+'Frozen test starts '+String(r.split.validation_end_exclusive).slice(0,10)+'. Status: '+r.status+'.';
+  const candidates=$('#training-candidates');candidates.replaceChildren();for(const c of r.validation_candidates){const row=document.createElement('tr');if(c.episode===r.selected_episode)row.classList.add('selected-row');cell(row,c.episode===0?'Cash':'Episode '+c.episode);cell(row,pct(c.metrics.net_return_pct));cell(row,c.metrics.max_drawdown_pct.toFixed(2)+'%');cell(row,c.metrics.score.toFixed(2));candidates.append(row)}
+  const comparisons=$('#training-baselines');comparisons.replaceChildren();for(const[name,m]of [['Selected frozen policy',r.test],...Object.entries(r.test_baselines)]){const row=document.createElement('tr');cell(row,name);cell(row,pct(m.net_return_pct));cell(row,m.max_drawdown_pct.toFixed(2)+'%');cell(row,String(m.fill_count));comparisons.append(row)}
+  const episodes=$('#training-episodes');episodes.replaceChildren();for(const e of r.episodes.slice(-50)){const row=document.createElement('tr');cell(row,String(e.episode));cell(row,e.reward.toFixed(5));cell(row,pct(e.net_return_pct));cell(row,(100*e.epsilon).toFixed(1)+'%');cell(row,String(e.states));episodes.append(row)}
+  $('#training-results').hidden=false;$('#training-status').textContent=file.name+' loaded locally. No model was updated by opening this report.';
+ }catch(e){$('#training-status').textContent=e.message}
+};

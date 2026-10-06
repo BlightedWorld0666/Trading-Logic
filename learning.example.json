@@ -1,0 +1,10 @@
+{
+  "episodes": 200,
+  "seed": 666,
+  "alpha": 0.15,
+  "gamma": 0.95,
+  "epsilon_start": 0.8,
+  "epsilon_end": 0.05,
+  "drawdown_penalty": 2.0,
+  "turnover_penalty": 0.0005
+}

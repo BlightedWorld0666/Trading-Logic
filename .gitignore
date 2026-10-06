@@ -6,3 +6,4 @@ data/
 .venv/
 secrets/
 *credentials*.json
+models/

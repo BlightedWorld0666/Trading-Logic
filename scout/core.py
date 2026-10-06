@@ -78,6 +78,10 @@ def simulate(bars, choices, settings, start=None, decision_provider=None):
     def equity():
         return cash + sum(q * marks.get(s, 0) for s, q in quantities.items())
 
+    def estimated_exit_cost():
+        return sum(q * marks[s] * (1 - (1 - settings.slippage_bps[kinds[s]] / 10000)
+                   * (1 - settings.fees_bps[kinds[s]] / 10000)) for s, q in quantities.items() if q)
+
     for timestamp in sorted(grouped):
         current = sorted(grouped[timestamp], key=lambda b: b.symbol)
         active = start is None or timestamp >= start
@@ -142,7 +146,8 @@ def simulate(bars, choices, settings, start=None, decision_provider=None):
         actions = None
         if decision_provider is not None and not halted:
             evidence = {'timestamp': timestamp.isoformat(), 'cash': cash, 'equity': total,
-                        'positions': dict(quantities), 'drawdown': dd,
+                        'positions': dict(quantities), 'drawdown': dd, 'max_drawdown': max_dd,
+                        'net_equity': total - estimated_exit_cost(), 'turnover': turnover,
                         'bars': {s: [{'timestamp': b.timestamp.isoformat(), 'close': b.close,
                                      'high': b.high, 'low': b.low, 'volume': b.volume}
                                     for b in series[-30:]] for s, series in history.items()}}
@@ -155,7 +160,7 @@ def simulate(bars, choices, settings, start=None, decision_provider=None):
             except Exception as exc:
                 actions = {s: 'hold' for s in kinds}
                 decisions.append({'timestamp': timestamp.isoformat(), 'actions': actions,
-                                  'reason': 'AI unavailable or invalid; hold.', 'error_type': type(exc).__name__})
+                                  'reason': 'Decision provider unavailable or invalid; hold.', 'error_type': type(exc).__name__})
         if actions is not None:
             for symbol, action in actions.items():
                 pending[symbol] = (quantities[symbol] > 0) if action == 'hold' else action == 'buy'
@@ -166,8 +171,7 @@ def simulate(bars, choices, settings, start=None, decision_provider=None):
                 continue
             pending[bar.symbol] = False if halted else signal(choices[bar.symbol], history[bar.symbol], quantities[bar.symbol] > 0)
     marked = equity()
-    exit_cost = sum(q * marks[s] * (1 - (1 - settings.slippage_bps[kinds[s]] / 10000)
-                         * (1 - settings.fees_bps[kinds[s]] / 10000)) for s, q in quantities.items() if q)
+    exit_cost = estimated_exit_cost()
     final = marked - exit_cost
     net_return = (final / settings.capital - 1) * 100
     return {'net_return_pct': net_return, 'net_profit': final - settings.capital,
