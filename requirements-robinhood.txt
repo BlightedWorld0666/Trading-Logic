@@ -1,0 +1,2 @@
+# Optional. The simulator and Ollama workflow use only the Python standard library.
+PyNaCl>=1.5,<2
