@@ -32,6 +32,7 @@ def quotes(credentials, symbols, opener=None, now=None):
     request = Request('https://trading.robinhood.com' + path, method='GET', headers={
         'x-api-key': key, 'x-timestamp': timestamp, 'x-signature': signature,
         'Content-Type': 'application/json'})
+    started=time.monotonic()
     try:
         with (opener or build_opener(NoRedirect())).open(request, timeout=20) as response:
             raw = response.read(262145)
@@ -59,6 +60,6 @@ def quotes(credentials, symbols, opener=None, now=None):
         if not math.isfinite(bid) or not math.isfinite(ask) or not 0 < bid <= ask:
             raise ValueError('Invalid or crossed quote prices.')
         result.append({'symbol': symbol, 'bid': bid, 'ask': ask})
-    return {'source': 'robinhood_crypto_v2', 'received_at_unix': time.time(),
+    return {'source': 'robinhood_crypto_v2', 'received_at_unix': time.time(), 'elapsed_seconds': time.monotonic()-started,
             'freshness': 'Receipt time only; endpoint has no exchange timestamp. Not an execution-price guarantee.',
             'quotes': result}

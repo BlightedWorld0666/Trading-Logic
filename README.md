@@ -1,8 +1,8 @@
-# Trading Logic · 0.2.0
+# Trading Logic · 0.3.0
 
 **Start here:** [Windows setup guide](SETUP-WINDOWS.md) — dashboard, training, Ollama, and optional Robinhood quotes in order.
 
-A local stocks-and-crypto research desk with CPU reinforcement learning, an optional Ollama paper agent and a read-only official Robinhood Crypto quote adapter. All trading in this version uses virtual cash. There is no live order placement code.
+A local stocks-and-crypto research desk with CPU reinforcement learning, an optional Ollama paper agent and a read-only official Robinhood Crypto quote adapter. All trading in this version uses virtual cash. The forward worker can read Robinhood crypto observations, persist a virtual account and monitor it locally. There is no live order placement code.
 
 ## Open the desk on Windows
 
@@ -128,7 +128,7 @@ Validation can itself overfit a small dataset. Once you inspect a final test, do
 
 Robinhood has an [official US Crypto API](https://robinhood.com/us/en/support/articles/crypto-api/) with v1/v2 endpoints. This adapter uses the v2 best bid/ask endpoint. API access and available pairs depend on your account and jurisdiction. Quotes exclude order-size effects and fees and are not guaranteed execution prices. This is not an official Robinhood paper-trading account.
 
-The adapter is a separate **quote snapshot tool** in this version. It is not yet connected to the historical paper engine or dashboard, and there is no stock feed attached.
+The standalone adapter is a **quote snapshot tool**. Version 0.3 also connects it to a persistent forward virtual crypto worker and its dashboard monitor. No live stock feed is attached.
 
 Install its optional signing dependency:
 
@@ -147,6 +147,57 @@ Keep the private key and API key on your PC. Do not paste them into chat, commit
 
 Requests use Ed25519 signatures over the API key, timestamp, full path including query, GET method and empty body, following the [official API documentation](https://docs.robinhood.com/crypto/trading/). Only a fixed GET quote endpoint is present; no order/cancel routes or AI-generated URLs are accepted. The snapshot records receipt time, not exchange freshness, because this endpoint does not supply an exchange timestamp. Real credentialed access has not been tested here.
 
+## Persistent forward paper account · 0.3.0
+
+This is a new, continuously running **virtual crypto account**, separate from historical `paper.py` replay. It can collect Robinhood read-only quotes, persist positions and pending intents, and survive worker restarts without resetting capital. It never submits a broker order.
+
+Try the invented live demo in one terminal:
+
+```powershell
+python forward.py --source demo --db runtime/demo.sqlite --interval 2 --bar-seconds 60
+```
+
+Run `python app.py` in another terminal, open port 8002 and select **Forward Paper**. The invented demo source is clearly labeled and uses the pair names only as fictional placeholders. It is not live market data.
+
+After local Robinhood credential setup, use a separate account database:
+
+```powershell
+python forward.py --source robinhood --db runtime/crypto.sqlite
+python app.py --paper-db runtime/crypto.sqlite
+```
+
+Run those in separate terminals. Default symbols are BTC-USD and ETH-USD, subject to your account's available pairs. Default live polling is every 60 seconds; the CLI enforces at least 30 seconds for Robinhood. Default sampled candle size is five minutes. Polling must be at most one quarter of the selected candle size to support sample coverage. `forward.example.json` defines virtual capital and illustrative costs/risk assumptions. It allocates no stock budget; this worker is crypto-only for now.
+
+**Decision providers:** default is a fixed 10/30 trend rule. Use `--strategy cash` to observe without entering positions; `--strategy reversion` or `--strategy breakout` selects another fixed rule. For Ollama, create a separate account with `--model qwen3:4b`. For a frozen learned policy, use `--policy path/to/policy.json`; its symbols, crypto asset classes and risk/cost settings must match. Use `--config` when training and running a policy with the forward settings. Existing accounts pin source, symbols, settings, candle size and provider identity, including a policy file hash. To change those, create a new database; restarting with matching options retains the existing account. No automatic retraining occurs.
+
+The worker waits for **30 consecutive eligible completed sampled candles** for every symbol before proposals, including Ollama. Five-minute candles therefore need approximately 2.5 hours of uninterrupted collection, plus startup alignment; the one-minute demo needs about half an hour. The equity/risk monitor runs on every accepted quote while warming up.
+
+**Receipt freshness:** the Robinhood endpoint does not supply exchange timestamps. The worker checks local receipt age (default 90 seconds), reported request latency (at most 10 seconds), source, all requested symbols and finite uncrossed prices. These cannot detect an upstream cached/stale quote. Nonincreasing receipt timestamps cannot advance the account or repeat a fill. Poll failures cancel pending intents and retain balances; the next accepted quote resumes observation. Gaps longer than the configured collection threshold cancel old intents and invalidate continuity. Paused accounts continue observations and equity marking.
+
+**Sampled candles:** OHLC uses periodically sampled **quote midpoints**, not exchange trades. Volume is explicitly zero/unknown; intrabar extremes can be missed. Building candles survive restarts. Startup/collection-gap candles are excluded from the eligible decision history and CSV export. Eligibility requires at least two samples, first/last observations spanning the outer quarters of a bucket, and no detected collection gap. This is a sampling-quality check, not exchange-bar verification. No missing buckets are interpolated. A rejected candle resets consecutive policy warmup history.
+
+**Virtual execution:** valid proposals create persisted intents; fills occur at a later accepted observation, never the same snapshot. Buys use ask plus adverse extra slippage, sells use bid minus extra slippage, and illustrative fees apply to each. Sizing is cost-inclusive and cash-only, with configured entry exposure caps. No size-based liquidity, partial fills, taxes or real execution latency is modeled. Equity is cash plus positions at estimated bid liquidation after modeled exit costs. The spread is reflected in equity, although the displayed extra-slippage tally excludes that spread. No estimated closeout is actually submitted to Robinhood.
+
+**Risk and controls:** pause cancels pending intents and blocks fills, while retaining positions and collecting data. Resume does not undo a drawdown halt. A halt is sticky across restarts; it blocks entries and queues virtual exits for later fresh observations when unpaused. Gaps can exceed the drawdown threshold. Exits-before-entries and pre/post-fill risk checks share the same account. Slow/in-flight proposals are discarded if controls or observations changed, the bar was already decided, or receipt age expired. Pending intents expire after 900 seconds by default. No automatic equity reset or halt reset exists.
+
+**Persistence:** SQLite transactions save balances, fills, observations and decisions together. A worker lease prevents concurrent workers on the same account and fences a superseded worker. The lease may remain visible briefly after a crash until it expires. A graceful Ctrl+C releases it; a crashed worker may need up to a few minutes before restart. A stopped worker cannot observe markets or execute even virtual exits. Retained pending intents can resume on restart only if fresh, unexpired and uninterrupted by a detected gap. Database/source/provider mismatch and unsupported/corrupt databases fail without resetting funds.
+
+Runtime databases and credentials are git-ignored. Quote snapshots retain the latest 10,000 observations; decision/fill journals and sampled candles persist. For long-running accounts, monitor disk usage and make online backups:
+
+```powershell
+python account_control.py --db runtime/crypto.sqlite
+python account_control.py --db runtime/crypto.sqlite --pause
+python account_control.py --db runtime/crypto.sqlite --resume
+python account_control.py --db runtime/crypto.sqlite --backup backups/crypto-001.sqlite
+python account_control.py --db runtime/crypto.sqlite --export-csv data/crypto-midpoints.csv
+```
+
+Backup and export refuse to overwrite an existing file. The backup API creates a consistent SQLite copy even while the worker is running; copying just the main `.sqlite` file while a WAL worker is active may miss committed changes. Restore by stopping the worker and using a backup under a new `--db` path with the same options. CSV exports retain eligible sampled midpoint OHLC and zero volume; record the Robinhood/source/sampling provenance alongside the CSV. These exports are not verified exchange OHLCV.
+
+The dashboard monitors one account selected through `--paper-db`, refreshes while its tab is visible, and uses the same local Host/token protections for pause/resume. It has no arbitrary browser-selected file path or account key entry. The stock feed, synchronized multi-strategy benchmarking and live order execution remain future work.
+
+Actual Robinhood credentials and live Ollama inference have not been exercised in this development environment. Tests use synthetic/mocked inputs; they establish implementation behavior, not profitability or production broker connectivity.
+
 ## Validation and next steps
 
 ```powershell
@@ -157,4 +208,4 @@ Optional UI parser checks, if Node.js is installed: `node tests/test_dashboard.c
 
 Tests cover reinforcement reward/Bellman updates, terminal accounting, no-learning evaluation, reproducibility, test-tail isolation, frozen-policy loading, next-bar timing, shared cash and costs, drawdown override, chronological AI evidence, hold behavior, failed AI requests, holdout selection isolation, CSV validation, Ollama schema/local checks, Robinhood signing and quote validation, and HTTP isolation/error preservation.
 
-Next work: persist forward paper portfolios; gather verified stock bars and Robinhood crypto observations; model spreads/fees from actual data; compare AI proposals with a fixed baseline; handle missing/stale quotes, outages and restart recovery. A real-money execution adapter would be a separate later feature with explicit account authorization, reconciliation and order limits.
+Next work: attach a verified stock feed; add synchronized forward benchmark portfolios and actual execution-cost estimates; model spreads/fees from actual data; compare AI proposals with a fixed baseline; handle missing/stale quotes, outages and restart recovery. A real-money execution adapter would be a separate later feature with explicit account authorization, reconciliation and order limits.

@@ -69,7 +69,7 @@ def analyze(bars, settings=None, source='synthetic_demo'):
     if combined['net_return_pct'] < benchmark['net_return_pct']:
         audit.append('The selected combination lagged the same-allocation buy-and-hold comparison.')
     audit.append('Repeat on genuinely new, verified data and stress fees/slippage before considering execution.')
-    return {'version': '0.2.0', 'created_at': datetime.now(timezone.utc).isoformat(),
+    return {'version': '0.3.0', 'created_at': datetime.now(timezone.utc).isoformat(),
             'source': source, 'currency': 'USD', 'settings': asdict(settings),
             'selection_rule': 'Training net return percentage minus 1.5 × training maximum drawdown percentage; cash is eligible.',
             'split_at': split.isoformat(), 'start': times[0].isoformat(), 'end': times[-1].isoformat(),

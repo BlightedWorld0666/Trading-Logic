@@ -1,0 +1,9 @@
+{
+  "capital": 1000,
+  "stock_weight": 0,
+  "crypto_weight": 0.9,
+  "max_position": 0.25,
+  "max_drawdown": 0.1,
+  "fees_bps": {"stock": 0, "crypto": 25},
+  "slippage_bps": {"stock": 2, "crypto": 10}
+}

@@ -38,7 +38,7 @@ async function run(){if(runBusy||uploadBusy)return;runBusy=true;error('');$('#ru
 $('#study-form').onsubmit=e=>{e.preventDefault();run()};
 $('#csv').onchange=async()=>{const version=++uploadVersion;error('');const file=$('#csv').files[0];csvText=null;if(!file){uploadBusy=false;$('#run-study').disabled=runBusy;$('#reset-demo').disabled=runBusy;$('#file-state').textContent='No upload: deterministic invented demo.';return}if(file.size>1000000){uploadBusy=false;$('#run-study').disabled=runBusy;$('#reset-demo').disabled=runBusy;error('Use a CSV below 1 MB in this first version.');$('#csv').value='';$('#file-state').textContent='No upload: deterministic invented demo.';return}uploadBusy=true;$('#run-study').disabled=true;$('#reset-demo').disabled=true;try{const contents=await file.text();if(version!==uploadVersion)return;csvText=contents;$('#file-state').textContent=file.name+' loaded locally. Click Run research to test it.'}catch(e){if(version===uploadVersion)error('Could not read this CSV. Choose the file again.')}finally{if(version===uploadVersion){uploadBusy=false;$('#run-study').disabled=runBusy;$('#reset-demo').disabled=runBusy}}};
 $('#reset-demo').onclick=()=>{uploadVersion++;uploadBusy=false;csvText=null;$('#csv').value='';$('#file-state').textContent='No upload: deterministic invented demo.';run()};
-document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(!b)return;document.querySelectorAll('.view').forEach(s=>s.hidden=s.id!==b.dataset.view);document.querySelectorAll('[data-view]').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b))})});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(!b)return;if(b.dataset.view==='forward')refreshPaper();document.querySelectorAll('.view').forEach(s=>s.hidden=s.id!==b.dataset.view);document.querySelectorAll('[data-view]').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b))})});
 $('#export-report').onclick=()=>{if(!report)return;const blob=new Blob([JSON.stringify(report,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='Trading-Logic-Research-'+report.report_id+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
 $('#ai-form').onsubmit=async e=>{e.preventDefault();if(!report)return;const id=report.report_id;$('#summarize').disabled=true;$('#ai-status').textContent='Reading the report with your local model…';try{const result=await request('/api/summary',{model:$('#model').value,report_id:id});if(report.report_id!==result.report_id){$('#ai-status').textContent='Report changed; the older commentary was discarded.';return}$('#ai-summary').textContent=result.notes.summary;list($('#ai-risks'),result.notes.risks);list($('#ai-checks'),result.notes.next_checks);$('#ai-notes').hidden=false;$('#ai-status').textContent='Local model: '+result.notes.model+'. Commentary is unverified and has no execution authority.'}catch(err){$('#ai-status').textContent=err.message}finally{$('#summarize').disabled=false}};
 $('#summarize').disabled=true;request('/api/report').then(r=>{report=r;render()}).catch(e=>error('Could not load the local research server. Run start-scout.bat and open http://127.0.0.1:8002. '+e.message));
@@ -49,7 +49,7 @@ $('#training-report').onchange=async()=>{
  try{
   if(file.size>10000000)throw Error('Use a training report below 10 MB.');
   const r=JSON.parse(await file.text()),finite=n=>typeof n==='number'&&Number.isFinite(n);
-  if(r.version!=='0.2.0'||!Array.isArray(r.episodes)||r.episodes.length>2000||!Array.isArray(r.validation_candidates)||r.validation_candidates.length>5||!r.test||!r.split||!r.test_baselines||!finite(r.test.net_profit)||!finite(r.test.max_drawdown_pct)||!finite(r.selected_episode))throw Error('This is not a supported training report.json.');
+  if(!['0.2.0','0.3.0'].includes(r.version)||!Array.isArray(r.episodes)||r.episodes.length>2000||!Array.isArray(r.validation_candidates)||r.validation_candidates.length>5||!r.test||!r.split||!r.test_baselines||!finite(r.test.net_profit)||!finite(r.test.max_drawdown_pct)||!finite(r.selected_episode))throw Error('This is not a supported training report.json.');
   for(const row of r.episodes)if(!['episode','reward','net_return_pct','epsilon','states'].every(k=>finite(row[k])))throw Error('Invalid training episode data.');
   for(const c of r.validation_candidates)if(!c.metrics||!['net_return_pct','max_drawdown_pct','score'].every(k=>finite(c.metrics[k])))throw Error('Invalid validation metrics.');
   for(const m of Object.values(r.test_baselines))if(!['net_return_pct','max_drawdown_pct','fill_count'].every(k=>finite(m[k])))throw Error('Invalid baseline metrics.');
@@ -63,3 +63,27 @@ $('#training-report').onchange=async()=>{
   $('#training-results').hidden=false;$('#training-status').textContent=file.name+' loaded locally. No model was updated by opening this report.';
  }catch(e){$('#training-status').textContent=e.message}
 };
+
+let paperSnapshot=null,paperReadBusy=false,paperControlBusy=false,paperEpoch=0;
+function renderPaper(r){
+ paperSnapshot=r;
+ if(r.configured===false){$('#paper-results').hidden=true;$('#paper-source').textContent='No account database at the configured path.';$('#paper-status').textContent='Start the worker first. Default monitor: runtime/demo.sqlite. For another account, restart app.py with --paper-db.';return}
+ const s=r.state;$('#paper-results').hidden=false;
+ $('#paper-source').textContent=(s.config.source==='robinhood_crypto_v2'?'ROBINHOOD QUOTE OBSERVATIONS / VIRTUAL MONEY':'INVENTED LIVE DEMO / NO MARKET DATA')+' · '+s.config.provider;
+ $('#paper-equity').textContent=money(s.equity);$('#paper-profit').textContent=money(r.net_profit)+' vs initial virtual capital';tone($('#paper-profit'),r.net_profit);
+ $('#paper-cash').textContent=money(s.cash);$('#paper-costs').textContent=money(s.fees)+' fees / '+money(s.slippage)+' extra slippage';$('#paper-dd').textContent=(s.max_drawdown*100).toFixed(2)+'%';
+ $('#paper-risk').textContent=s.halted?'HALTED / entries blocked':s.paused?'PAUSED / positions retained':'Virtual risk limits active';
+ $('#paper-health').textContent=s.health==='degraded'?'DEGRADED':!r.worker_active?'STOPPED':!r.receipt_fresh?'STALE':'OBSERVING';
+ $('#paper-age').textContent=r.receipt_age_seconds===null?'No observations yet':Math.max(0,r.receipt_age_seconds).toFixed(0)+'s since receipt; not exchange freshness';
+ $('#paper-toggle').textContent=s.paused?'Resume paper trading':'Pause paper trading';$('#paper-toggle').disabled=paperControlBusy;$('#paper-pending').textContent=s.pending.length+' pending virtual intent(s)';
+ const positions=$('#paper-positions');positions.replaceChildren();for(const symbol of s.config.symbols){const tr=document.createElement('tr'),q=s.quotes[symbol];cell(tr,symbol);cell(tr,q?money(q.bid):'—');cell(tr,q?money(q.ask):'—');cell(tr,s.positions[symbol].toFixed(8));cell(tr,String(r.completed_candles[symbol]||0));positions.append(tr)}
+ const fills=$('#paper-fills');fills.replaceChildren();for(const f of r.fills){const tr=document.createElement('tr');cell(tr,new Date(f.at*1000).toLocaleString());cell(tr,f.symbol);cell(tr,f.side.toUpperCase());cell(tr,f.quantity.toFixed(8));cell(tr,money(f.fill_price));cell(tr,money(f.fee));fills.append(tr)}
+ if(!r.fills.length){const tr=document.createElement('tr'),td=cell(tr,'No virtual fills yet. Warmup, cash selection and pauses can all produce zero fills.');td.colSpan=6;fills.append(tr)}
+ const events=$('#paper-events');events.replaceChildren();for(const e of r.events.slice(0,40)){const tr=document.createElement('tr');cell(tr,new Date(e.at*1000).toLocaleString());cell(tr,e.kind);cell(tr,e.error_type||e.reason||e.symbol||e.provider||'Saved in account journal');events.append(tr)}
+ const decision=r.events.find(e=>e.kind==='decision');$('#paper-decision').textContent=decision?'Last decision: '+decision.proposal.reason:'Waiting for 30 completed sampled candles before proposals.';
+ list($('#paper-limitations'),r.limitations);$('#paper-status').textContent='Virtual account retained across restarts. Automatically refreshes while this tab is open.';
+}
+async function refreshPaper(){if(paperReadBusy||paperControlBusy)return;paperReadBusy=true;const epoch=paperEpoch;try{const r=await request('/api/paper');if(epoch===paperEpoch)renderPaper(r)}catch(e){$('#paper-status').textContent=e.message+' Last displayed balances may be stale.'}finally{paperReadBusy=false}}
+$('#paper-refresh').onclick=refreshPaper;
+$('#paper-toggle').onclick=async()=>{if(!paperSnapshot||paperSnapshot.configured===false||paperControlBusy)return;paperControlBusy=true;paperEpoch++;$('#paper-toggle').disabled=true;try{const r=await request('/api/paper/control',{paused:!paperSnapshot.state.paused});renderPaper(r)}catch(e){$('#paper-status').textContent=e.message}finally{paperControlBusy=false;$('#paper-toggle').disabled=false}};
+setInterval(()=>{if(!$('#forward').hidden&&!document.hidden)refreshPaper()},5000);

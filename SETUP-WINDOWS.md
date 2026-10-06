@@ -12,7 +12,7 @@ Start with the dashboard and demo training. Add Ollama after those work, then op
 
 All commands below run from that project folder. You don't need VS Code, Git, Node.js, or a Cloudflare change to start.
 
-Already have a Git checkout? Run `git pull --ff-only` from that checkout instead of downloading again. Keep your existing `models`, `reports`, and `secrets` folders when updating.
+Already have a Git checkout? Run `git pull --ff-only` from that checkout instead of downloading again. Keep your existing `models`, `reports`, `runtime`, and `secrets` folders when updating.
 
 ## 2. Check Python
 
@@ -111,7 +111,7 @@ If the replay reports provider failures, inspect `error_type` in its JSON log. F
 
 ## 6. Optional: Robinhood crypto quotes
 
-This feature currently fetches **read-only quote snapshots**. It is separate from the dashboard and paper engine. It cannot place an order or turn the replay into a live paper account.
+First test a **read-only quote snapshot**. Version 0.3 can then use those observations in a persistent forward virtual account (next section). It cannot place real orders, and historical replay remains separate.
 
 Install the optional signing dependency and generate a local key pair:
 
@@ -143,7 +143,53 @@ Expected: JSON containing bid and ask prices. Pair availability and API access d
 
 Keep that credential file on your PC; do not paste it into chat, commit it, or put it on your public website. On Windows, use the file's **Properties → Security** to restrict access appropriately to your user and system administrators. The generator's POSIX file mode does not configure Windows file permissions.
 
-## 7. Real historical data comes next
+## 7. Start the persistent forward paper account
+
+To check the monitor before connecting a broker feed, use a demo worker in a second terminal:
+
+```powershell
+py -3 forward.py --source demo --db runtime/demo.sqlite --interval 2 --bar-seconds 60
+```
+
+Keep your existing dashboard running with `py -3 app.py`. Open **Forward Paper**; it detects the default demo database once created. Prices are invented. After about 30–31 minutes of uninterrupted one-minute sampled candles, the fixed trend provider can start proposing virtual trades.
+
+For Robinhood observations, after completing the read-only key setup:
+
+```powershell
+py -3 forward.py --source robinhood --db runtime/crypto.sqlite
+```
+
+In your dashboard terminal, press Ctrl+C to stop the old desk, then run:
+
+```powershell
+py -3 app.py --paper-db runtime/crypto.sqlite
+```
+
+Open port 8002 → **Forward Paper**. Leave **both terminals open**. The worker polls every minute and builds five-minute sampled candles. It waits for 30 consecutive eligible candles (about 2.5 hours plus startup alignment) before proposals. Until then it collects observations and monitors virtual equity.
+
+Default decisions use a fixed trend rule, without Ollama. To use Ollama instead, create a **new** account:
+
+```powershell
+py -3 forward.py --source robinhood --db runtime/crypto-ollama.sqlite --model qwen3:4b
+```
+
+Point the dashboard at `runtime/crypto-ollama.sqlite` with `--paper-db`. You can use `--strategy cash` on a new account to collect observations without entries. These accounts use the illustrative virtual settings in `forward.example.json`; no brokerage balance is imported.
+
+**Pause paper trading** cancels virtual orders and retains positions; collection continues. Resume keeps any drawdown halt active. Stop a worker with Ctrl+C and resume later using the **same command**: cash, positions, sampled history and valid pending intents are preserved. A long outage cancels old intents and restarts candle warmup. A crash can leave the worker lease occupied for a few minutes; wait for it to expire rather than deleting the database.
+
+Inspect, back up or export in a third terminal:
+
+```powershell
+py -3 account_control.py --db runtime/crypto.sqlite
+py -3 account_control.py --db runtime/crypto.sqlite --backup backups/crypto-001.sqlite
+py -3 account_control.py --db runtime/crypto.sqlite --export-csv data/crypto-midpoints.csv
+```
+
+Use the backup command instead of copying an active database file. Generated CSV uses sampled midpoint candles with unknown volume set to zero, not exchange trade candles. It is labeled as unverified imported data if you later train from it.
+
+The live stock feed is still pending. Read-only Robinhood access needs to be tested with your own credentials locally; no real orders are supported.
+
+## 8. Real historical data comes next
 
 Once the demo workflow works, put a verified USD OHLCV CSV in a local `data` folder. Training supports 1–4 symbols and needs at least 150 distinct timestamps, including at least 40 training and 20 validation/test bars per symbol. See [README.md](README.md#import-historical-data) for the CSV format and data requirements.
 
@@ -154,7 +200,7 @@ py -3 paper.py --csv data/history.csv --config config.example.json --policy mode
 
 Use the same risk/cost settings and symbols for training and policy replay. Costs in the example config are illustrative; replace them with verified assumptions for your dataset.
 
-Training uses 60% of timestamps to learn, 20% to select a checkpoint, and 20% for a frozen final test. Replaying those prices again is not new forward evidence. This version does not continuously collect live stock/crypto data or place Robinhood trades.
+Training uses 60% of timestamps to learn, 20% to select a checkpoint, and 20% for a frozen final test. Replaying those prices again is not new forward evidence. Version 0.3 can continuously collect Robinhood crypto quote observations for its forward virtual account. A live stock feed and real Robinhood trades are not implemented.
 
 ## Quick fixes
 

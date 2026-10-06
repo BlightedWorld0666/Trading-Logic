@@ -13,11 +13,13 @@ from scout.data import demo_bars, parse_csv
 from scout.core import Settings
 from scout.research import analyze
 from scout.ai import summarize
+from scout.account import Account
 
 ROOT = Path(__file__).resolve().parent
 TOKEN = secrets.token_urlsafe(32)
 LOCK = threading.Lock()
 REPORT = None
+PAPER_PATH = ROOT / 'runtime' / 'demo.sqlite'
 
 
 def stamp(report):
@@ -63,7 +65,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send(403, {'error': 'This dashboard is local-only.'})
             return
         path = urlsplit(self.path).path
-        if path == '/api/report':
+        if path == '/api/paper':
+            try:
+                self.send(200, Account(PAPER_PATH).snapshot() if PAPER_PATH.is_file() else {'configured': False})
+            except Exception:
+                self.send(503, {'error': 'Paper account unavailable. Inspect its local database; it has not been reset.'})
+        elif path == '/api/report':
             with LOCK:
                 report = copy.deepcopy(REPORT)
             self.send(200, report)
@@ -96,7 +103,10 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 raise ValueError('Send a JSON object.')
             path = urlsplit(self.path).path
-            if path == '/api/analyze':
+            if path == '/api/paper/control':
+                Account(PAPER_PATH).control(body.get('paused'))
+                self.send(200, Account(PAPER_PATH).snapshot())
+            elif path == '/api/analyze':
                 csv_text = body.get('csv_text')
                 if csv_text is not None and not isinstance(csv_text, str):
                     raise ValueError('csv_text must be text.')
@@ -127,13 +137,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global REPORT
+    global REPORT, PAPER_PATH
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--csv', type=Path, help='Imported USD OHLCV dataset; otherwise run invented demo data.')
     parser.add_argument('--config', type=Path, help='JSON settings, such as config.example.json.')
     parser.add_argument('--report', type=Path, help='Write a JSON report and exit instead of serving the dashboard.')
+    parser.add_argument('--paper-db', type=Path, default=PAPER_PATH, help='Existing forward account database to monitor/control.')
     parser.add_argument('--port', type=int, default=8002)
     args = parser.parse_args()
+    PAPER_PATH = args.paper_db
     config = json.loads(args.config.read_text()) if args.config else {}
     settings = settings_from({'settings': config})
     bars = parse_csv(args.csv.read_text(encoding='utf-8-sig')) if args.csv else demo_bars()
@@ -147,7 +159,7 @@ def main():
         parser.error('Choose a port between 1024 and 65535.')
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     print(f'Trading Logic research dashboard: http://127.0.0.1:{args.port}')
-    print('Historical simulation only. Demo prices are invented. Press Ctrl+C to stop.')
+    print('Research simulations and optional forward VIRTUAL account. No real orders. Press Ctrl+C to stop.')
     try:
         server.serve_forever()
     except KeyboardInterrupt:

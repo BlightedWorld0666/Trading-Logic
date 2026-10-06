@@ -7,3 +7,7 @@ data/
 secrets/
 *credentials*.json
 models/
+runtime/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
