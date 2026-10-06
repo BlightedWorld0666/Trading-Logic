@@ -1,5 +1,7 @@
 # Trading Logic · 0.2.0
 
+**Start here:** [Windows setup guide](SETUP-WINDOWS.md) — dashboard, training, Ollama, and optional Robinhood quotes in order.
+
 A local stocks-and-crypto research desk with CPU reinforcement learning, an optional Ollama paper agent and a read-only official Robinhood Crypto quote adapter. All trading in this version uses virtual cash. There is no live order placement code.
 
 ## Open the desk on Windows
