@@ -14,6 +14,9 @@ from scout.core import Settings
 from scout.research import analyze
 from scout.ai import summarize
 from scout.account import Account
+from scout.operations import load_deployment, setup, readiness, journal, scoreboard, recap
+from scout.backups import listing, backup, stage_restore
+from server_manager import rpc
 from scout.safety import Alerts, monitor, control as safety_control
 from scout.board import Board, evidence_snapshot, meeting, text_field
 
@@ -75,7 +78,28 @@ class Handler(BaseHTTPRequestHandler):
             self.send(403, {'error': 'This dashboard is local-only.'})
             return
         path = urlsplit(self.path).path
-        if path == '/api/safety':
+        if path == '/api/operations':
+            try:
+                config=load_deployment(ROOT);checks=setup(ROOT,config)
+                try:manager=rpc(ROOT)
+                except Exception:manager={'available':False,'note':'Start server_manager.py to enable service controls.'}
+                self.send(200,{'setup':checks,'readiness':readiness(ROOT,config,checks),'manager':manager,'backups':listing(ROOT),'deployment':config})
+            except Exception:
+                self.send(503,{'error':'Inspect deployment.json and local configuration.'})
+        elif path == '/api/journal':
+            try:
+                from urllib.parse import parse_qs
+                after=int(parse_qs(urlsplit(self.path).query).get('after',['0'])[0])
+                self.send(200,journal(PAPER_PATH,after))
+            except Exception:
+                self.send(400,{'error':'Journal unavailable or invalid cursor. Start the configured paper worker.'})
+        elif path == '/api/scoreboard':
+            with LOCK:report=copy.deepcopy(REPORT)
+            self.send(200,scoreboard(report))
+        elif path == '/api/recap':
+            try:self.send(200,{'text':recap(PAPER_PATH,ALERTS_PATH)})
+            except Exception:self.send(400,{'error':'Start the configured paper worker before requesting a recap.'})
+        elif path == '/api/safety':
             try:
                 account = monitor(PAPER_PATH,ALERTS_PATH)
                 self.send(200, {'account':account,'notifications':Alerts(ALERTS_PATH).snapshot()})
@@ -124,7 +148,22 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 raise ValueError('Send a JSON object.')
             path = urlsplit(self.path).path
-            if path == '/api/safety/control':
+            if path == '/api/operations/control':
+                try:result=rpc(ROOT,body.get('action'),body.get('service'),body.get('backup_id'))
+                except ValueError:raise
+                except Exception:
+                    self.send(503,{'error':'Server manager unavailable. Start server_manager.py and inspect its local log before retrying.'});return
+                self.send(200,result)
+            elif path == '/api/setup/save':
+                raw=body.get('deployment')
+                if not isinstance(raw,dict):raise ValueError('Deployment must be an object.')
+                # Validate in memory without writing an unvalidated configuration.
+                from scout.operations import validate_deployment
+                config=validate_deployment(ROOT,raw)
+                with LOCK:
+                    temporary=ROOT/'deployment.json.tmp';temporary.write_text(json.dumps(config,indent=2));temporary.replace(ROOT/'deployment.json')
+                self.send(200,{'saved':True,'note':'Restart the manager for configuration changes. Keep existing account/provider options or choose a new database.'})
+            elif path == '/api/safety/control':
                 result=safety_control(PAPER_PATH,body.get('action'),ALERTS_PATH)
                 Alerts(ALERTS_PATH).collect(Account(PAPER_PATH))
                 self.send(200, {'account':result,'notifications':Alerts(ALERTS_PATH).snapshot()})

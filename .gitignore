@@ -11,3 +11,6 @@ runtime/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+deployment.json
+deployment.json.tmp

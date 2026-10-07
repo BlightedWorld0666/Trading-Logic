@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import random
+import re
 import secrets
 import threading
 import time
@@ -66,6 +67,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--db',type=Path,default=Path('runtime/demo.sqlite'))
     parser.add_argument('--alerts-db',type=Path,default=Path('runtime/alerts.sqlite'))
+    parser.add_argument('--owner-token',help=argparse.SUPPRESS)
     parser.add_argument('--source',choices=['demo','robinhood'],default='demo')
     parser.add_argument('--symbols',nargs='+',default=['BTC-USD','ETH-USD'])
     parser.add_argument('--credentials',type=Path,default=Path('secrets/robinhood.json'))
@@ -81,7 +83,8 @@ def main():
     if not 1<=args.interval<=300 or (args.source=='robinhood' and args.interval<30):parser.error('Use 1–300 seconds; Robinhood polls must be at least 30 seconds apart.')
     if not 60<=args.bar_seconds<=3600 or args.interval>args.bar_seconds/4:parser.error('Use 60–3,600 second candles and a polling interval at most one quarter of the candle size.')
     if args.ticks is not None and args.ticks<1:parser.error('--ticks must be positive.')
-    owner=secrets.token_hex(16);account=None;claimed=False
+    if args.owner_token is not None and not re.fullmatch(r'[0-9a-f]{32}',args.owner_token):parser.error('Invalid worker owner token.')
+    owner=args.owner_token or secrets.token_hex(16);account=None;claimed=False
     try:
         settings=Settings(**json.loads(args.config.read_text())).validate()
         symbols=sorted(args.symbols)

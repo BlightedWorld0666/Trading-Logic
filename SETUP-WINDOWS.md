@@ -282,3 +282,40 @@ py -3 app.py --paper-db runtime/demo.sqlite --alerts-db runtime/alerts.sqlite --
 Fill `host`, `team`, `audience` and `email` with your actual values. Route the protected hostname in your existing Cloudflare Tunnel to `http://localhost:8002`; preserve the external Host header. Open the hostname over HTTPS and sign in through Access. With remote mode on, opening localhost without a signed Access assertion returns 403 too; restart without `--access-config` for local-only use. Do not expose port 8002 directly or route the plain local-only mode onto the public website. Origin verification rejects bad/missing signed assertions even if an Access policy is accidentally weakened. An owner email change requires editing the local config and restarting.
 
 This prepares code and instructions; your Discord app, credentials, Access policy and tunnel hostname are not connected yet. No real orders exist. Arrange automatic startup for the worker/watchdog/Discord services before relying on unattended operation, and use an external heartbeat service if you want notification while the entire host is offline.
+
+
+## 12. Switch to one server manager
+
+Stop manually started service terminals first. Install the shared optional dependencies, create the deployment file, and launch:
+
+```powershell
+py -3 -m pip install -r requirements-control.txt
+Copy-Item deployment.example.json deployment.json
+notepad deployment.json
+py -3 server_manager.py
+```
+
+Or double-click **start-manager.bat**. Keep its terminal open. The browser can be closed without stopping supervision. Default dashboard: `http://127.0.0.1:8002`. Manager RPC port 8004 is private loopback only; never publish it through your tunnel. Open **09 / Server & Setup** to inspect checks and fixed-service controls. Saving deployment changes requires stopping/restarting the manager. Stop/restart of the dashboard or Discord itself interrupts that interface; use the other interface or the manager terminal as needed.
+
+Enable `discord_enabled`/`remote_enabled` only after completing the local secret files in steps 10–11. Add `discord` to `auto_start` when enabling it (the guided form handles this). Add `ollama` only if you want the manager to launch it and another Ollama service is not already running. A frozen-policy worker is not selectable through this first manager version; use the existing manual worker workflow for policy testing.
+
+For $20 demo paper trading, use `account_db: runtime/crypto20-demo.sqlite` and `settings: config.20-crypto.json`. Keep all other options identical to an existing account or select a fresh database. New manager startup keeps paper trading safety-stopped: wait for healthy observations and optional required Discord delivery, acknowledge, then resume manually. No real orders are supported.
+
+View **10 / Trade Journal** and **11 / Scoreboard**. Candidate scoreboard results are historical diagnostics, not live recommendations. The readiness panel must never show funded trading available. Daily recap hour uses UTC; preview shows lifetime balances and costs with separate last-24-hour event counts. Recaps are queued by the manager and delivered by Discord if configured.
+
+Backups are under `runtime/backups`. A staged restore goes under `runtime/restores` and remains paused. Do not overwrite a running account. Stop the manager and all services before changing paths to recovered databases; keep credentials separately and copy verified backups to another device for drive-loss protection.
+
+To opt into automatic manager startup when **you sign into Windows**, run locally:
+
+```powershell
+.\install-startup.ps1
+```
+
+If your Windows policy blocks local scripts or task creation, review that host policy before proceeding; this installer does not bypass it. It is sign-in startup, not pre-login service hosting. To remove it:
+
+```powershell
+.
+emove-startup.ps1
+```
+
+Before leaving it unattended, test a demo worker crash, manager restart, Discord outage, feed interruption, backup/staged restore and Windows reboot. Confirm only the expected owned processes are restarted, retry blocks are visible, and no restart clears the account stop. Windows task installation and your actual connections remain untested until you perform this host drill.

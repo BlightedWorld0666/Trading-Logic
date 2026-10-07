@@ -1,7 +1,7 @@
 // Verify saved training-report parsing/rendering without a browser or network.
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const nodes=new Map();
-function node(){return {textContent:'',hidden:false,content:'test-token',files:[],children:[],classList:{toggle(){},add(){}},append(...items){this.children.push(...items)},replaceChildren(){this.children=[]},setAttribute(){}}}
+function node(){return {textContent:'',hidden:false,content:'test-token',files:[],children:[],classList:{toggle(){},add(){}},append(...items){this.children.push(...items)},replaceChildren(){this.children=[]},setAttribute(){},querySelectorAll(){return []}}}
 const document={querySelector(selector){if(!nodes.has(selector))nodes.set(selector,node());return nodes.get(selector)},querySelectorAll(){return []},createElement:node,createElementNS:node,addEventListener(){}};
 const context={document,Intl,URL,Blob,setTimeout,setInterval:()=>0,fetch:()=>new Promise(()=>{})};
 vm.createContext(context);vm.runInContext(fs.readFileSync('web/dashboard.js','utf8'),context);
@@ -48,5 +48,12 @@ async function importValue(value){document.querySelector('#training-report').fil
  context.renderSafety({account:{configured:false},notifications:{pending:0,discord:{required:false},alerts:[]}});
  assert.equal(document.querySelector('#safety-kill').disabled,true);
  assert.equal(document.querySelector('#safety-banner').hidden,true);
- console.log('Training, forward account, board and safety UI checks passed.');
+ context.renderScoreboard({source:'synthetic_demo',report_id:'abc',note:'Diagnostics',rows:[{name:'Cash',net_return_pct:0,max_drawdown_pct:0,fill_count:0,final_equity:20}],candidates:[]});
+ assert.equal(document.querySelector('#scoreboard-portfolios').children.length,1);
+ assert.match(document.querySelector('#scoreboard-context').textContent,/synthetic_demo/);
+ context.renderOperations({deployment:{account_db:'runtime/demo.sqlite',settings:'forward.example.json',source:'demo',strategy:'trend',model:'local',symbols:['BTC-USD'],use_model:false,discord_enabled:false,remote_enabled:false,auto_start:[],recap_hour_utc:0},manager:{services:[{name:'worker',running:false,desired:true,restart_count:3,automatic_restart_blocked:true,last_error:'Fault'}]},setup:{checks:[{ready:false,name:'Model',required:false,detail:'Missing'}]},readiness:{configuration_ready:true,paper_observation_ready:false,missing_live_evidence:['Broker adapter']},backups:[{id:'backup',files:3}]});
+ assert.match(document.querySelector('#service-cards').children[0].children[0].textContent,/REVIEW REQUIRED/);
+ assert.match(document.querySelector('#readiness-status').textContent,/funded trading: unavailable/);
+ assert.equal(document.querySelector('#backup-choice').children.length,1);
+ console.log('Dashboard training, forward, board, safety and operations checks passed.');
 })().catch(e=>{console.error(e);process.exitCode=1});

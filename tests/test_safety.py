@@ -136,7 +136,7 @@ class DiscordBoundaryTests(unittest.IsolatedAsyncioTestCase):
         from unittest.mock import AsyncMock
         from discord_control import build_client
         client=build_client({'owner_id':'123','guild_id':'456','alerts_channel_id':'789'},Path('unused-account'),Path('unused-alerts'),Path('unused-board'))
-        self.assertEqual({c.name for c in client.tree.get_commands()},{'trading_status','trading_control','agent_board','agent_note'})
+        self.assertEqual({c.name for c in client.tree.get_commands()},{'trading_status','trading_control','agent_board','agent_note','server_status','server_control','paper_recap','backup_now'})
         def interaction(user,guild):return SimpleNamespace(user=SimpleNamespace(id=user),guild_id=guild,response=SimpleNamespace(send_message=AsyncMock()))
         denied=interaction(124,456);self.assertFalse(await client.tree.interaction_check(denied));denied.response.send_message.assert_awaited_once()
         self.assertFalse(await client.tree.interaction_check(interaction(123,457)))

@@ -1,0 +1,18 @@
+{
+  "account_db": "runtime/demo.sqlite",
+  "alerts_db": "runtime/alerts.sqlite",
+  "board_db": "runtime/board.sqlite",
+  "settings": "forward.example.json",
+  "source": "demo",
+  "strategy": "trend",
+  "model": "qwen3.5:4b-q4_K_M",
+  "use_model": false,
+  "symbols": ["BTC-USD", "ETH-USD"],
+  "interval": 60,
+  "bar_seconds": 300,
+  "discord_enabled": false,
+  "remote_enabled": false,
+  "auto_start": ["watchdog", "worker", "dashboard"],
+  "recap_hour_utc": 0,
+  "backup_daily": true
+}

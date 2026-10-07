@@ -4,6 +4,8 @@ import asyncio
 import json
 from pathlib import Path
 from scout.account import Account
+from scout.operations import recap
+from server_manager import rpc
 from scout.board import Board
 from scout.safety import Alerts, authorized, control, monitor
 
@@ -116,6 +118,18 @@ def build_client(config,account_path,alerts_path,board_path):
     @client.tree.command(name='agent_note',description='Post a local research note; no execution authority')
     async def agent_note(interaction:discord.Interaction,text:str,thread_id:int=0):
         await reply(interaction,lambda:'Saved in discussion #'+str(Board(board_path).human_post(text,thread_id or None)))
+    @client.tree.command(name='server_status',description='Read manager-owned service status')
+    async def server_status(interaction:discord.Interaction):
+        await reply(interaction,lambda:json.dumps(rpc(Path(__file__).resolve().parent),indent=2))
+    @client.tree.command(name='server_control',description='Control a fixed manager-owned service')
+    @app_commands.choices(service=[app_commands.Choice(name=s,value=s) for s in ('ollama','watchdog','worker','discord','dashboard')],action=[app_commands.Choice(name=s,value=s) for s in ('start','stop','restart')])
+    async def server_control(interaction:discord.Interaction,service:app_commands.Choice[str],action:app_commands.Choice[str]):
+        await reply(interaction,lambda:json.dumps(rpc(Path(__file__).resolve().parent,action.value,service.value),indent=2))
+    @client.tree.command(name='paper_recap',description='Read the current paper recap')
+    async def paper_recap(interaction:discord.Interaction):await reply(interaction,lambda:recap(account_path,alerts_path))
+    @client.tree.command(name='backup_now',description='Create a private verified backup through the manager')
+    async def backup_now(interaction:discord.Interaction):
+        await reply(interaction,lambda:'Backup created: '+rpc(Path(__file__).resolve().parent,'backup')['id'])
     return client
 
 
