@@ -219,3 +219,13 @@ Training uses 60% of timestamps to learn, 20% to select a checkpoint, and 20% fo
 | No paper trades | Check whether cash won, states were unseen, or the log contains provider errors |
 
 For your first evening, finishing **steps 1–5** is enough to test the whole local workflow. Robinhood quotes can be added afterward.
+
+## 8. Train both markets with hypothetical $20 accounts
+
+```powershell
+py -3 experiment.py --output models/small-account-001
+```
+
+This runs stock and crypto training separately with $20 **each**, using invented demo prices unless you provide a mixed `--csv`. Open `models/small-account-001/summary.json` for the two heldout ending balances, baselines and limitations. Each market also gets its own policy, matching settings, report and experience log. Use a new output folder for each run. Replaying the same training prices is not additional evidence.
+
+The $2,000 milestone is not a profit forecast or a rule forcing trades. The simulation does not model minimum orders, quantity increments, stock cash settlement or actual broker costs, so a real $20 account may not be able to execute its proposed trades. Stocks remain historical research; crypto has the first forward observation feed. See the README's independent $20 experiment section for data and forward-account commands. Existing $1,000 research/demo accounts are left intact.

@@ -1,4 +1,4 @@
-# Trading Logic · 0.3.0
+# Trading Logic · 0.3.1
 
 **Start here:** [Windows setup guide](SETUP-WINDOWS.md) — dashboard, training, Ollama, and optional Robinhood quotes in order.
 
@@ -209,3 +209,34 @@ Optional UI parser checks, if Node.js is installed: `node tests/test_dashboard.c
 Tests cover reinforcement reward/Bellman updates, terminal accounting, no-learning evaluation, reproducibility, test-tail isolation, frozen-policy loading, next-bar timing, shared cash and costs, drawdown override, chronological AI evidence, hold behavior, failed AI requests, holdout selection isolation, CSV validation, Ollama schema/local checks, Robinhood signing and quote validation, and HTTP isolation/error preservation.
 
 Next work: attach a verified stock feed; add synchronized forward benchmark portfolios and actual execution-cost estimates; model spreads/fees from actual data; compare AI proposals with a fixed baseline; handle missing/stale quotes, outages and restart recovery. A real-money execution adapter would be a separate later feature with explicit account authorization, reconciliation and order limits.
+
+## Independent $20 stock and crypto experiment
+
+Both markets remain in research while crypto is the first forward-feed focus. Run:
+
+```powershell
+python experiment.py --output models/small-account-001
+```
+
+This trains **two separate hypothetical accounts with $20 each**, not a shared $40 account or a claim that the same $20 is invested twice. It uses the existing 60/20/20 chronological train/validation/test split, four fixed checkpoints, and cash as a candidate. The final test cannot update the policy. The default $2,000 target is a reporting milestone only; it cannot select a model or alter training rewards. $20 to $2,000 requires a 100× balance and 9,900% total gain. No timeframe or daily income is forecast.
+
+Without a CSV, prices are invented and cannot establish profitability. To supply a mixed stock/crypto dataset with the standard CSV columns:
+
+```powershell
+python experiment.py --csv data/verified-mixed-bars.csv --config config.example.json --output models/small-account-real-data-001
+```
+
+Use up to four symbols **per market**, with at least 150 distinct timestamps and the existing per-symbol split requirements. Document data provenance/stock adjustments; the tool cannot verify a CSV simply because it was supplied. Reusing a test dataset after inspecting it is not a fresh test. `--capital`, `--target`, `--episodes`, and `--seed` are configurable. Capital/market allocation come from the experiment; fees, slippage and risk limits come from the optional config.
+
+The output includes `summary.json`, plus each market's frozen `policy.json`, `candidate-policy.json`, `report.json`, matching `settings.json`, and training experience. Summaries show heldout ending net liquidation equity, losses/gains, drawdown, fills, and cash/trend/buy-and-hold baselines. Checkpoints describe the ending balance, not an invented path through milestones. Existing output folders are never overwritten.
+
+**Small-account execution remains unmodeled:** historical simulations allow unconstrained fractional quantities and proportional costs; minimum orders, quantity increments, liquidity, actual spreads, taxes and stock cash settlement are not modeled. Consequently a $20 simulation is largely a scaled version of a larger one, not evidence those orders could execute in a real account. The software does not claim live readiness or account eligibility, even if a simulation reaches $2,000.
+
+`config.20-crypto.json` and `config.20-stock.json` are illustrative $20 profiles. For an independent $20 crypto **demo forward account**, use a new database:
+
+```powershell
+python forward.py --source demo --config config.20-crypto.json --db runtime/crypto20-demo.sqlite --interval 2 --bar-seconds 60
+python app.py --paper-db runtime/crypto20-demo.sqlite
+```
+
+These fictional forward observations do not measure earnings. For a read-only Robinhood forward experiment after credential setup, replace `--source demo` with `--source robinhood`, remove the accelerated interval/bar options, and choose a **new** database such as `runtime/crypto20-quotes.sqlite`. The balances and orders remain virtual. A frozen policy requires matching symbols, classes and settings; demo symbol policies cannot be applied to real BTC/ETH feeds. The forward account models bid/ask execution estimates, but broker minimums/increments remain unmodeled. No additional deposits or real orders are made.
