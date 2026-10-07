@@ -98,6 +98,7 @@ class Account:
         state = json.loads(row[0])
         if not finite(state['cash']) or state['cash'] < -1e-8 or any(not finite(q) or q < 0 for q in state['positions'].values()):
             raise ValueError('Invalid paper balances; inspect a database backup.')
+        state.setdefault('safety', {'latched':False,'reason':None,'since':None})
         return state
 
     def _save(self, conn, state):
@@ -129,7 +130,10 @@ class Account:
         if type(paused) is not bool:raise ValueError('paused must be true or false.')
         now = time.time() if now is None else now
         with self.transaction() as conn:
-            state = self._state(conn);state['paused'] = paused;state['control_revision'] += 1
+            state = self._state(conn)
+            if not paused and state['safety']['latched']:
+                raise ValueError('Safety stop is latched. Acknowledge it after fresh quotes and a healthy worker return, then resume.')
+            state['paused'] = paused;state['control_revision'] += 1
             state['pending'] = []
             self._event(conn, now, 'paused' if paused else 'resumed', {'positions_retained': True, 'halt_remains': state['halted']})
             self._save(conn, state)
@@ -139,9 +143,54 @@ class Account:
         with self.transaction() as conn:
             self._check_owner(conn, owner, now)
             state = self._state(conn);state['health'] = 'degraded';state['last_error'] = str(error_type)[:80]
-            state['pending'] = []
+            self._trip(conn,state,'provider_error',now)
             self._event(conn, now, 'provider_error', {'error_type': state['last_error'], 'pending_cancelled': True})
             self._save(conn, state)
+
+    def _trip(self, conn, state, reason, now):
+        if not state['safety']['latched']:
+            state['safety']={'latched':True,'reason':reason,'since':now}
+            self._event(conn,now,'safety_stop',{'reason':reason,'positions_retained':True})
+        state['paused']=True;state['pending']=[];state['control_revision']+=1
+
+    def trip(self, reason='manual_emergency_stop', now=None):
+        if reason not in ('manual_emergency_stop','worker_offline','stale_quotes','startup_no_quotes','provider_error','discord_disconnected','observation_gap','monitor_unavailable'):
+            raise ValueError('Unknown safety reason.')
+        now=time.time() if now is None else now
+        with self.transaction() as conn:
+            state=self._state(conn)
+            self._trip(conn,state,reason,now);self._save(conn,state)
+
+    def acknowledge_safety(self, now=None):
+        now=time.time() if now is None else now
+        with self.transaction() as conn:
+            state=self._state(conn)
+            lease=conn.execute('SELECT expires FROM lease WHERE id=1').fetchone()
+            age=None if state['last_received'] is None else now-state['last_received']
+            if not lease or lease[0]<=now or age is None or not -5<=age<=state['config']['max_receipt_age'] or state['health']!='observing':
+                raise ValueError('A healthy worker and fresh quote receipts are required before acknowledgement.')
+            if state['safety']['latched']:
+                state['safety']={'latched':False,'reason':None,'since':None}
+                state['paused']=True;state['pending']=[];state['control_revision']+=1
+                self._event(conn,now,'safety_acknowledged',{'paused':True,'halt_remains':state['halted']})
+                self._save(conn,state)
+
+    def watch_safety(self, now=None):
+        """Evaluate and latch within the same transaction as the state/lease read."""
+        now=time.time() if now is None else now
+        with self.transaction() as conn:
+            state=self._state(conn)
+            lease=conn.execute('SELECT expires FROM lease WHERE id=1').fetchone()
+            created=conn.execute("SELECT at FROM events WHERE kind='created' ORDER BY id LIMIT 1").fetchone()[0]
+            reason=None
+            if state['last_received'] is None:
+                if now-created>state['config']['max_receipt_age']:reason='startup_no_quotes'
+            elif not lease or lease[0]<=now:reason='worker_offline'
+            elif not -5<=now-state['last_received']<=state['config']['max_receipt_age']:reason='stale_quotes'
+            elif state['health']=='degraded':reason='provider_error'
+            if reason and not state['safety']['latched']:
+                self._trip(conn,state,reason,now);self._save(conn,state)
+            return state['safety']
 
     def validate_snapshot(self, snapshot, state, now):
         config = state['config']
@@ -203,9 +252,11 @@ class Account:
             received, quotes = self.validate_snapshot(snapshot,state,now)
             if state['last_received'] is not None and received <= state['last_received']:
                 return {'accepted': False, 'completed': False, 'seq': state['seq']}
+            receipt_gap = state['last_received'] is not None and received-state['last_received'] > state['config']['max_receipt_age']
+            if receipt_gap:self._trip(conn,state,'stale_quotes',now)
             gap = state['last_received'] is not None and received-state['last_received'] > state['config']['max_gap']
             if gap:
-                state['pending']=[];self._event(conn,now,'observation_gap',{'seconds':received-state['last_received'],'pending_cancelled':True})
+                self._trip(conn,state,'observation_gap',now);self._event(conn,now,'observation_gap',{'seconds':received-state['last_received'],'pending_cancelled':True})
             seq = state['seq']+1;was_halted=state['halted'];state['quotes']=quotes
             self._mark(state)
             if state['halted']:

@@ -14,6 +14,7 @@ from scout.core import Settings
 from scout.research import analyze
 from scout.ai import summarize
 from scout.account import Account
+from scout.safety import Alerts, monitor, control as safety_control
 from scout.board import Board, evidence_snapshot, meeting, text_field
 
 ROOT = Path(__file__).resolve().parent
@@ -23,6 +24,8 @@ REPORT = None
 PAPER_PATH = ROOT / 'runtime' / 'demo.sqlite'
 BOARD_PATH = ROOT / 'runtime' / 'board.sqlite'
 MEETING_LOCK = threading.Lock()
+ALERTS_PATH = ROOT / 'runtime' / 'alerts.sqlite'
+ACCESS = None
 
 
 def stamp(report):
@@ -61,14 +64,24 @@ class Handler(BaseHTTPRequestHandler):
 
     def trusted_host(self):
         port = self.server.server_address[1]
-        return self.headers.get('Host') in {f'127.0.0.1:{port}', f'localhost:{port}'}
+        hosts={f'127.0.0.1:{port}',f'localhost:{port}'}
+        if ACCESS is not None:
+            hosts.update({ACCESS.host,ACCESS.host+':443'})
+        if self.headers.get('Host') not in hosts:return False
+        return ACCESS is None or ACCESS.verify(self.headers.get('Cf-Access-Jwt-Assertion'))
 
     def do_GET(self):
         if not self.trusted_host():
             self.send(403, {'error': 'This dashboard is local-only.'})
             return
         path = urlsplit(self.path).path
-        if path == '/api/board':
+        if path == '/api/safety':
+            try:
+                account = monitor(PAPER_PATH,ALERTS_PATH)
+                self.send(200, {'account':account,'notifications':Alerts(ALERTS_PATH).snapshot()})
+            except Exception:
+                self.send(503, {'error':'Safety status unavailable. Inspect local services and storage; no account reset was attempted.'})
+        elif path == '/api/board':
             try:
                 self.send(200, Board(BOARD_PATH).snapshot())
             except Exception:
@@ -111,7 +124,11 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 raise ValueError('Send a JSON object.')
             path = urlsplit(self.path).path
-            if path == '/api/board/post':
+            if path == '/api/safety/control':
+                result=safety_control(PAPER_PATH,body.get('action'),ALERTS_PATH)
+                Alerts(ALERTS_PATH).collect(Account(PAPER_PATH))
+                self.send(200, {'account':result,'notifications':Alerts(ALERTS_PATH).snapshot()})
+            elif path == '/api/board/post':
                 board = Board(BOARD_PATH)
                 thread_id = board.human_post(body.get('text'),body.get('thread_id'),body.get('reply_to'))
                 self.send(200, {'thread_id':thread_id})
@@ -151,7 +168,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise
                 self.send(202, {'thread_id':thread_id})
             elif path == '/api/paper/control':
-                Account(PAPER_PATH).control(body.get('paused'))
+                if type(body.get('paused')) is not bool:raise ValueError('paused must be true or false.')
+                safety_control(PAPER_PATH,'pause' if body['paused'] else 'resume',ALERTS_PATH)
                 self.send(200, Account(PAPER_PATH).snapshot())
             elif path == '/api/analyze':
                 csv_text = body.get('csv_text')
@@ -184,17 +202,26 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global REPORT, PAPER_PATH, BOARD_PATH
+    global REPORT, PAPER_PATH, BOARD_PATH, ALERTS_PATH, ACCESS
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--csv', type=Path, help='Imported USD OHLCV dataset; otherwise run invented demo data.')
     parser.add_argument('--config', type=Path, help='JSON settings, such as config.example.json.')
     parser.add_argument('--report', type=Path, help='Write a JSON report and exit instead of serving the dashboard.')
     parser.add_argument('--paper-db', type=Path, default=PAPER_PATH, help='Existing forward account database to monitor/control.')
     parser.add_argument('--board-db', type=Path, default=BOARD_PATH, help='Persistent research board. Run one dashboard per board database.')
+    parser.add_argument('--alerts-db', type=Path, default=ALERTS_PATH)
+    parser.add_argument('--access-config', type=Path, help='Optional owner-only Cloudflare Access config; required for remote host access.')
     parser.add_argument('--port', type=int, default=8002)
     args = parser.parse_args()
     PAPER_PATH = args.paper_db
     BOARD_PATH = args.board_db
+    ALERTS_PATH = args.alerts_db
+    if args.access_config:
+        from scout.access import Access
+        try:
+            ACCESS=Access(**json.loads(args.access_config.read_text()))
+        except Exception as exc:
+            parser.error('Remote access configuration failed: '+type(exc).__name__+'. Check config and install requirements-control.txt.')
     config = json.loads(args.config.read_text()) if args.config else {}
     settings = settings_from({'settings': config})
     bars = parse_csv(args.csv.read_text(encoding='utf-8-sig')) if args.csv else demo_bars()
@@ -209,12 +236,20 @@ def main():
     Board(BOARD_PATH).interrupt_previous()
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     print(f'Trading Logic research dashboard: http://127.0.0.1:{args.port}')
+    stop_guard=threading.Event()
+    def guard():
+        while not stop_guard.is_set():
+            try:monitor(PAPER_PATH,ALERTS_PATH)
+            except Exception:pass
+            stop_guard.wait(5)
+    guard_thread=threading.Thread(target=guard,daemon=True);guard_thread.start()
     print('Research simulations and optional forward VIRTUAL account. No real orders. Press Ctrl+C to stop.')
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        stop_guard.set();guard_thread.join(timeout=12)
         server.server_close()
 
 

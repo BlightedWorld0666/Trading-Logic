@@ -236,3 +236,49 @@ The $2,000 milestone is not a profit forecast or a rule forcing trades. The simu
 Restart `app.py` after updating, open the dashboard, then select **07 / Agent Board**. Post a note, or enter a question up to 160 characters and click **Run research meeting**. Select an existing discussion to include its recent messages. Enter `qwen3.5:4b-q4_K_M` only after it is downloaded and Ollama is running. Leave the model blank for a template-only workflow check.
 
 The four roles run sequentially, share their preceding messages, and post concerns and next checks. Read the archived source/date on each meeting: invented demo prices remain invented. Discussions are saved in `runtime/board.sqlite`; keep that directory when replacing source files. One dashboard per board database. Meetings cannot trade, change account risk settings, or contact Discord. The Ross-inspired role is research-only until appropriate stock data and executable, tested setup rules are added.
+
+
+## 10. Run safety monitoring and Discord controls
+
+Keep all services on the same account/alerts paths. For the default demo account, open separate PowerShell terminals in the project folder:
+
+```powershell
+py -3 safety_watch.py --db runtime/demo.sqlite --alerts-db runtime/alerts.sqlite
+py -3 forward.py --source demo --db runtime/demo.sqlite --alerts-db runtime/alerts.sqlite
+py -3 app.py --paper-db runtime/demo.sqlite --alerts-db runtime/alerts.sqlite
+```
+
+The watchdog can start first and record a missing-account notice; the worker creates that account. Monitor **08 / Safety & Alerts**. Once worker/data failures latch a stop, keep the worker running so fresh observations can return. Click **Acknowledge restored connection**, then **Resume paper trading**. Acknowledgement requires a healthy worker and fresh receipts; a drawdown halt remains. Emergency stop retains positions and cancels pending virtual intents.
+
+For Discord, install the optional packages and make a local config:
+
+```powershell
+py -3 -m pip install -r requirements-control.txt
+New-Item -ItemType Directory -Force secrets
+Copy-Item discord.example.json secrets/discord.json
+notepad secrets/discord.json
+```
+
+Create a Discord application/bot in the Developer Portal. Enter its token locally, enable Discord Developer Mode to copy your user ID, private server ID and private alert channel ID, then fill the config. Install the bot with `bot` and `applications.commands` scopes. Give it View Channel and Send Messages in that private channel; administrator permission and message-content intent are unnecessary. Restrict the channel to you and the bot. Start:
+
+```powershell
+py -3 discord_control.py --db runtime/demo.sqlite --alerts-db runtime/alerts.sqlite --board-db runtime/board.sqlite
+```
+
+Starting the configured Discord service makes it a required dependency. Wait for connection/delivery to recover, then acknowledge and resume if startup latched the account. Slash commands are owner-only and restricted to your configured server. Do a demo drill: emergency-stop; verify no fills and your alert; try resume before acknowledgement (should reject); restore healthy services; acknowledge; verify still paused; resume. Test disconnects using demo money only. Queued alerts deliver after connectivity returns. Do not send the token to chat or commit the config.
+
+For the independent $20 crypto account, change **every** `--db`/`--paper-db` to `runtime/crypto20-demo.sqlite` and supply `--config config.20-crypto.json` to the worker. Preserve existing account/provider/candle options when resuming. This release monitors one configured account per service set.
+
+## 11. Access the dashboard privately from your site
+
+Use a dedicated hostname, for example **trading.blighted.world**. In Cloudflare Zero Trust, create a self-hosted Access application for that exact hostname and an Allow policy for only your sign-in email. Note your team domain and application AUD. Use a short session duration you are comfortable with.
+
+```powershell
+Copy-Item access.example.json secrets/access.json
+notepad secrets/access.json
+py -3 app.py --paper-db runtime/demo.sqlite --alerts-db runtime/alerts.sqlite --access-config secrets/access.json
+```
+
+Fill `host`, `team`, `audience` and `email` with your actual values. Route the protected hostname in your existing Cloudflare Tunnel to `http://localhost:8002`; preserve the external Host header. Open the hostname over HTTPS and sign in through Access. With remote mode on, opening localhost without a signed Access assertion returns 403 too; restart without `--access-config` for local-only use. Do not expose port 8002 directly or route the plain local-only mode onto the public website. Origin verification rejects bad/missing signed assertions even if an Access policy is accidentally weakened. An owner email change requires editing the local config and restarting.
+
+This prepares code and instructions; your Discord app, credentials, Access policy and tunnel hostname are not connected yet. No real orders exist. Arrange automatic startup for the worker/watchdog/Discord services before relying on unattended operation, and use an external heartbeat service if you want notification while the entire host is offline.

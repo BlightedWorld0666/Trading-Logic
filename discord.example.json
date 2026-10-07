@@ -1,0 +1,6 @@
+{
+  "token": "ENTER_BOT_TOKEN_LOCALLY_IN_secrets/discord.json",
+  "owner_id": "YOUR_DISCORD_USER_ID",
+  "guild_id": "YOUR_PRIVATE_SERVER_ID",
+  "alerts_channel_id": "YOUR_PRIVATE_ALERTS_CHANNEL_ID"
+}

@@ -1,4 +1,4 @@
-# Trading Logic · 0.4.0
+# Trading Logic · 0.5.0
 
 **Start here:** [Windows setup guide](SETUP-WINDOWS.md) — dashboard, training, Ollama, and optional Robinhood quotes in order.
 
@@ -270,3 +270,39 @@ Each meeting includes the current historical report and a read-only snapshot of 
 5. Evaluate quiet and active market periods separately; preserve a shared capital budget and hard risk controls if execution agents are introduced later.
 
 No Ross-style scanner or setup detector is implemented yet. Existing sampled midpoint crypto candles have unknown volume and cannot validate stock relative-volume, news or Level 2 strategies. Crypto momentum needs its own data and evaluation. Profitability and high-revenue days are not established by this board.
+
+
+## Safety controls and remote owner access · 0.5.0
+
+The configured **forward virtual account** now has a persistent safety latch. Feed/provider errors, stale receipts, observation gaps, expired/missing workers, and required Discord delivery failures stop all strategies attached to that account. They cancel pending virtual intents, preserve balances/positions, increment the control revision to reject late inference, and block resume. Data may continue arriving while paused to establish recovery. A successful connection does not clear the stop.
+
+**Recovery is two deliberate actions:** acknowledge once a healthy worker and fresh receipts return (plus Discord delivery when configured as required), then resume. Acknowledgement retains pause. The separate sticky drawdown halt is never cleared by acknowledgement or resume. Existing databases get a default safety field without resetting funds or requiring a new schema. Dashboard **08 / Safety & Alerts**, owner-only Discord commands and `account_control.py --kill/--acknowledge/--resume` use the same controls.
+
+This is not liquidation: open positions can lose value during an outage. No actual broker order cancellation, flattening or server-side protective orders are implemented because the project has no real execution adapter. Account controls apply to the **one configured database**, not other databases or external broker accounts. Each additional account needs its own correctly configured services until a multi-account controller is built.
+
+### Independent monitoring and durable alerts
+
+Run `safety_watch.py` separately from the worker/dashboard. The worker checks safety before each feed poll, the dashboard has its own five-second guard, and the independent watchdog detects failure even if either process stops. Quote age uses the account's configured receipt threshold (normally 90 seconds); worker checks use lease expiry; Discord heartbeat expires after 30 seconds. Faults are therefore detected within these bounds plus polling/processing delay, not instantly. Broker receipt freshness still cannot prove upstream quote freshness.
+
+The alerts database stores minimal operational events, a durable delivery queue, delivery attempts and errors. Event IDs deduplicate polling, alerts retain their original time, and local failures never automatically reset either database. Discord delivery retries when connectivity returns. Delivery is at least once: a crash after Discord accepts a message but before its delivery acknowledgement is saved may create a duplicate. Run one Discord delivery process per alerts database. Standalone watchdogs only enqueue; the Discord process delivers. Dashboard shows the latest 100 alerts, queue count and notification health. User notes and model text are not included in automatic alerts.
+
+Once `discord_control.py` starts with a valid configuration, Discord becomes a **required safety dependency** for that alerts database. On startup or reconnection, a stop may be latched while delivery is checked. If the bot crashes, loses its connection, cannot access its configured channel, or fails to send an alert, trading stops and stays stopped. Restore the bot/delivery, review the cause, acknowledge and resume manually. Do not delete the runtime directory to bypass this requirement. All services must use identical account and alert paths. A failed alert database also stops the monitored account when that account can still be written.
+
+A complete host power/internet outage cannot send a message through the same host during the outage. Local alerts queue for catch-up; an external heartbeat monitor is still needed for immediate notification of a completely offline host. Windows boot services, external monitoring, credentials, server permissions and live fault drills remain host setup work.
+
+### Owner-only Discord controls
+
+Install `requirements-control.txt`, copy `discord.example.json` to ignored `secrets/discord.json`, and enter the bot token and exact owner/server/private alert-channel IDs **locally**. Never commit real credentials. Start `discord_control.py` with matching `--db`, `--alerts-db` and `--board-db` paths. The bot registers guild slash commands and requires both the exact owner user ID and configured guild on every interaction, including reads. It uses no message-content intent, sends control replies ephemerally, and only allows the owner mention in automatic alerts.
+
+- `/trading_status`: virtual balances, positions, safety, receipt/worker health and queued alerts.
+- `/trading_control action:kill|acknowledge|pause|resume`: persistent account controls.
+- `/agent_board`: recent messages from the latest research discussion.
+- `/agent_note`: add a local note, optionally to an existing discussion.
+
+The bot does not expose real orders, arbitrary shell commands, secret changes or model-generated control actions. Research remains manually requested from the dashboard. Discord connectivity and credential-backed command registration still require testing in your private server; local tests construct the actual command tree and check authorization without connecting or posting.
+
+### Private site dashboard
+
+Local-only access remains the default. The optional `--access-config secrets/access.json` mode allows one configured remote hostname and validates Cloudflare Access JWT signatures, RS256, issuer, audience, expiry, token type and the exact owner email on **every HTML and API request**. Merely sending an email header is insufficient. Missing/bad tokens fail closed, including requests to localhost when remote mode is enabled. POST requests still require the per-process dashboard token and reject cross-site requests. The server remains bound to `127.0.0.1`.
+
+Use a separate protected hostname such as `trading.blighted.world` routed through your Cloudflare Tunnel to port 8002. Create an owner-only Access application for it before routing the dashboard. Copy `access.example.json` into `secrets/access.json`, supplying the real team domain, application AUD, hostname and owner email. Install the optional dependencies before enabling this mode. The public portfolio stays separate. No DNS, tunnel, Access policy or Discord application has been provisioned by this commit; actual remote login and host configuration still need testing. See SETUP-WINDOWS.md for exact commands.

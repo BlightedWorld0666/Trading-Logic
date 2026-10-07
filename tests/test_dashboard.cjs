@@ -40,5 +40,13 @@ async function importValue(value){document.querySelector('#training-report').fil
  assert.match(thread.children[1].textContent,/synthetic_demo/);
  assert.equal(thread.children[2].children[1].textContent,'<img onerror=bad>');
  assert.equal(document.querySelector('#board-thread').children.length,2);
- console.log('Training, forward account and message board UI checks passed.');
+ context.renderSafety({account:{...account,state:{...account.state,safety:{latched:true,reason:'provider_error',since:1}}},notifications:{pending:1,discord:{required:true,available:false},alerts:[{id:1,at:1,kind:'safety_stop',message:'provider_error',delivered:null,attempts:1,last_error:'ConnectionError'}]}});
+ assert.equal(document.querySelector('#safety-state').textContent,'STOP LATCHED');
+ assert.equal(document.querySelector('#safety-banner').hidden,false);
+ assert.equal(document.querySelector('#safety-discord').textContent,'UNAVAILABLE');
+ assert.equal(document.querySelector('#safety-alerts').children.length,1);
+ context.renderSafety({account:{configured:false},notifications:{pending:0,discord:{required:false},alerts:[]}});
+ assert.equal(document.querySelector('#safety-kill').disabled,true);
+ assert.equal(document.querySelector('#safety-banner').hidden,true);
+ console.log('Training, forward account, board and safety UI checks passed.');
 })().catch(e=>{console.error(e);process.exitCode=1});

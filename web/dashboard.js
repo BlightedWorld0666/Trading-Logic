@@ -38,7 +38,7 @@ async function run(){if(runBusy||uploadBusy)return;runBusy=true;error('');$('#ru
 $('#study-form').onsubmit=e=>{e.preventDefault();run()};
 $('#csv').onchange=async()=>{const version=++uploadVersion;error('');const file=$('#csv').files[0];csvText=null;if(!file){uploadBusy=false;$('#run-study').disabled=runBusy;$('#reset-demo').disabled=runBusy;$('#file-state').textContent='No upload: deterministic invented demo.';return}if(file.size>1000000){uploadBusy=false;$('#run-study').disabled=runBusy;$('#reset-demo').disabled=runBusy;error('Use a CSV below 1 MB in this first version.');$('#csv').value='';$('#file-state').textContent='No upload: deterministic invented demo.';return}uploadBusy=true;$('#run-study').disabled=true;$('#reset-demo').disabled=true;try{const contents=await file.text();if(version!==uploadVersion)return;csvText=contents;$('#file-state').textContent=file.name+' loaded locally. Click Run research to test it.'}catch(e){if(version===uploadVersion)error('Could not read this CSV. Choose the file again.')}finally{if(version===uploadVersion){uploadBusy=false;$('#run-study').disabled=runBusy;$('#reset-demo').disabled=runBusy}}};
 $('#reset-demo').onclick=()=>{uploadVersion++;uploadBusy=false;csvText=null;$('#csv').value='';$('#file-state').textContent='No upload: deterministic invented demo.';run()};
-document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(!b)return;if(b.dataset.view==='forward')refreshPaper();if(b.dataset.view==='board')refreshBoard();document.querySelectorAll('.view').forEach(s=>s.hidden=s.id!==b.dataset.view);document.querySelectorAll('[data-view]').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b))})});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(!b)return;if(b.dataset.view==='forward')refreshPaper();if(b.dataset.view==='board')refreshBoard();if(b.dataset.view==='safety')refreshSafety();document.querySelectorAll('.view').forEach(s=>s.hidden=s.id!==b.dataset.view);document.querySelectorAll('[data-view]').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b))})});
 $('#export-report').onclick=()=>{if(!report)return;const blob=new Blob([JSON.stringify(report,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='Trading-Logic-Research-'+report.report_id+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
 $('#ai-form').onsubmit=async e=>{e.preventDefault();if(!report)return;const id=report.report_id;$('#summarize').disabled=true;$('#ai-status').textContent='Reading the report with your local model…';try{const result=await request('/api/summary',{model:$('#model').value,report_id:id});if(report.report_id!==result.report_id){$('#ai-status').textContent='Report changed; the older commentary was discarded.';return}$('#ai-summary').textContent=result.notes.summary;list($('#ai-risks'),result.notes.risks);list($('#ai-checks'),result.notes.next_checks);$('#ai-notes').hidden=false;$('#ai-status').textContent='Local model: '+result.notes.model+'. Commentary is unverified and has no execution authority.'}catch(err){$('#ai-status').textContent=err.message}finally{$('#summarize').disabled=false}};
 $('#summarize').disabled=true;request('/api/report').then(r=>{report=r;render()}).catch(e=>error('Could not load the local research server. Run start-scout.bat and open http://127.0.0.1:8002. '+e.message));
@@ -115,3 +115,25 @@ async function boardAction(review){if(boardBusy)return;boardBusy=true;$('#board-
 $('#board-form').onsubmit=e=>{e.preventDefault();boardAction(false)};
 $('#board-review').onclick=()=>boardAction(true);$('#board-refresh').onclick=refreshBoard;
 setInterval(()=>{if(!$('#board').hidden&&!document.hidden)refreshBoard()},5000);
+
+let safetyBusy=false,safetyReadBusy=false,safetyEpoch=0;
+function renderSafety(value){
+ const r=value.account,n=value.notifications,configured=r.configured!==false;
+ for(const id of ['safety-kill','safety-ack','safety-resume'])$('#'+id).disabled=!configured||safetyBusy;
+ const s=configured?r.state:null,latched=!!(s&&s.safety&&s.safety.latched);
+ $('#safety-state').textContent=!configured?'NOT CONFIGURED':latched?'STOP LATCHED':s.halted?'DRAWDOWN HALT':s.paused?'PAUSED':'WITHIN LIMIT';
+ $('#safety-reason').textContent=latched?s.safety.reason+' / '+new Date(s.safety.since*1000).toLocaleString():configured?'No safety latch. This is a virtual account.':'Start the configured forward worker.';
+ $('#safety-worker').textContent=!configured?'—':r.worker_active?'ACTIVE':'STOPPED';
+ $('#safety-age').textContent=configured&&r.receipt_age_seconds!==null?Math.max(0,r.receipt_age_seconds).toFixed(0)+'s since quote receipt':'No quote receipts';
+ $('#safety-discord').textContent=!n.discord.required?'NOT CONFIGURED':n.discord.available?'CONNECTED':'UNAVAILABLE';
+ $('#safety-pending').textContent=n.pending+' queued alert(s)';
+ $('#safety-banner').hidden=!latched;$('#safety-banner').textContent=latched?'PAPER TRADING STOPPED: '+s.safety.reason+'. Review Safety & Alerts before acknowledging and resuming.':'';
+ const rows=$('#safety-alerts');rows.replaceChildren();for(const a of n.alerts){const tr=document.createElement('tr');cell(tr,new Date(a.at*1000).toLocaleString());cell(tr,a.kind);cell(tr,a.message);cell(tr,a.delivered?'DELIVERED':'QUEUED / '+a.attempts+' attempt(s)'+(a.last_error?' / '+a.last_error:''));rows.append(tr)}
+}
+async function refreshSafety(){if(safetyReadBusy||safetyBusy)return;safetyReadBusy=true;const epoch=safetyEpoch;try{const value=await request('/api/safety');if(epoch===safetyEpoch)renderSafety(value)}catch(e){$('#safety-status').textContent=e.message+' Safety status may be stale.'}finally{safetyReadBusy=false}}
+async function safetyAction(action){if(safetyBusy)return;safetyBusy=true;safetyEpoch++;for(const id of ['safety-kill','safety-ack','safety-resume'])$('#'+id).disabled=true;
+ try{const value=await request('/api/safety/control',{action});safetyBusy=false;renderSafety(value);$('#safety-status').textContent=action==='acknowledge'?'Safety acknowledged. Paper trading remains paused; resume separately.':'Saved safety action: '+action+'. Open positions are retained.';await refreshPaper()}
+ catch(e){$('#safety-status').textContent=e.message}
+ finally{safetyBusy=false;await refreshSafety()}}
+$('#safety-kill').onclick=()=>safetyAction('kill');$('#safety-ack').onclick=()=>safetyAction('acknowledge');$('#safety-resume').onclick=()=>safetyAction('resume');$('#safety-refresh').onclick=refreshSafety;
+refreshSafety();setInterval(()=>{if(!document.hidden)refreshSafety()},5000);

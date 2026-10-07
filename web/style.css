@@ -4,3 +4,5 @@
 .loss{color:#e6a294!important}.gain{color:#8bd8b6!important}
 
 .board-roles{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}.board-roles span{border:1px solid #395367;border-radius:5px;padding:8px;color:#8bd8b6;font-size:12px}.board-message{border-left:2px solid #7c94aa;padding:12px 18px;margin:18px 0;background:#101e2a}.board-message small{color:#bca0eb}.board-message p{white-space:pre-wrap;overflow-wrap:anywhere}#board textarea,#board select{display:block;width:100%;background:#101e2a;color:#dfebf6;border:1px solid #395367;padding:10px;margin:8px 0 16px;font:inherit}#board-threads summary{cursor:pointer;overflow-wrap:anywhere}
+
+.safety-actions{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0}.danger{border-color:#ef8b93;color:#ef8b93;background:#382026}

@@ -10,6 +10,7 @@ import threading
 import time
 from types import SimpleNamespace
 from scout.account import Account
+from scout.safety import Alerts, monitor
 from scout.ai import paper_decision
 from scout.core import Settings, signal
 from scout.learning import load_policy
@@ -64,6 +65,7 @@ def process_tick(account,feed,provider,owner,now=None):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--db',type=Path,default=Path('runtime/demo.sqlite'))
+    parser.add_argument('--alerts-db',type=Path,default=Path('runtime/alerts.sqlite'))
     parser.add_argument('--source',choices=['demo','robinhood'],default='demo')
     parser.add_argument('--symbols',nargs='+',default=['BTC-USD','ETH-USD'])
     parser.add_argument('--credentials',type=Path,default=Path('secrets/robinhood.json'))
@@ -106,12 +108,14 @@ def main():
             account.claim(owner,max(180,args.interval+120))
             started=time.monotonic()
             try:
+                monitor(args.db,args.alerts_db)
                 result=process_tick(account,feed,provider,owner)
                 state=account.snapshot()['state']
                 print(f"Poll {polls+1} | seq {state['seq']} | equity ${state['equity']:.2f} | paused {state['paused']} | halted {state['halted']}",flush=True)
             except Exception as exc:
                 # Persist only error type; never credentials, request headers or arbitrary model text.
                 account.error(type(exc).__name__,owner)
+                Alerts(args.alerts_db).collect(account)
                 print('Poll/decision failed:',type(exc).__name__,'/ pending intents cancelled; balances retained.',flush=True)
             polls+=1
             if args.ticks is not None and polls>=args.ticks:break
