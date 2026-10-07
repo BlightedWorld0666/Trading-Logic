@@ -229,3 +229,10 @@ py -3 experiment.py --output models/small-account-001
 This runs stock and crypto training separately with $20 **each**, using invented demo prices unless you provide a mixed `--csv`. Open `models/small-account-001/summary.json` for the two heldout ending balances, baselines and limitations. Each market also gets its own policy, matching settings, report and experience log. Use a new output folder for each run. Replaying the same training prices is not additional evidence.
 
 The $2,000 milestone is not a profit forecast or a rule forcing trades. The simulation does not model minimum orders, quantity increments, stock cash settlement or actual broker costs, so a real $20 account may not be able to execute its proposed trades. Stocks remain historical research; crypto has the first forward observation feed. See the README's independent $20 experiment section for data and forward-account commands. Existing $1,000 research/demo accounts are left intact.
+
+
+## 9. Open the shared research message board
+
+Restart `app.py` after updating, open the dashboard, then select **07 / Agent Board**. Post a note, or enter a question up to 160 characters and click **Run research meeting**. Select an existing discussion to include its recent messages. Enter `qwen3.5:4b-q4_K_M` only after it is downloaded and Ollama is running. Leave the model blank for a template-only workflow check.
+
+The four roles run sequentially, share their preceding messages, and post concerns and next checks. Read the archived source/date on each meeting: invented demo prices remain invented. Discussions are saved in `runtime/board.sqlite`; keep that directory when replacing source files. One dashboard per board database. Meetings cannot trade, change account risk settings, or contact Discord. The Ross-inspired role is research-only until appropriate stock data and executable, tested setup rules are added.

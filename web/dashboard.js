@@ -38,7 +38,7 @@ async function run(){if(runBusy||uploadBusy)return;runBusy=true;error('');$('#ru
 $('#study-form').onsubmit=e=>{e.preventDefault();run()};
 $('#csv').onchange=async()=>{const version=++uploadVersion;error('');const file=$('#csv').files[0];csvText=null;if(!file){uploadBusy=false;$('#run-study').disabled=runBusy;$('#reset-demo').disabled=runBusy;$('#file-state').textContent='No upload: deterministic invented demo.';return}if(file.size>1000000){uploadBusy=false;$('#run-study').disabled=runBusy;$('#reset-demo').disabled=runBusy;error('Use a CSV below 1 MB in this first version.');$('#csv').value='';$('#file-state').textContent='No upload: deterministic invented demo.';return}uploadBusy=true;$('#run-study').disabled=true;$('#reset-demo').disabled=true;try{const contents=await file.text();if(version!==uploadVersion)return;csvText=contents;$('#file-state').textContent=file.name+' loaded locally. Click Run research to test it.'}catch(e){if(version===uploadVersion)error('Could not read this CSV. Choose the file again.')}finally{if(version===uploadVersion){uploadBusy=false;$('#run-study').disabled=runBusy;$('#reset-demo').disabled=runBusy}}};
 $('#reset-demo').onclick=()=>{uploadVersion++;uploadBusy=false;csvText=null;$('#csv').value='';$('#file-state').textContent='No upload: deterministic invented demo.';run()};
-document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(!b)return;if(b.dataset.view==='forward')refreshPaper();document.querySelectorAll('.view').forEach(s=>s.hidden=s.id!==b.dataset.view);document.querySelectorAll('[data-view]').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b))})});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(!b)return;if(b.dataset.view==='forward')refreshPaper();if(b.dataset.view==='board')refreshBoard();document.querySelectorAll('.view').forEach(s=>s.hidden=s.id!==b.dataset.view);document.querySelectorAll('[data-view]').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b))})});
 $('#export-report').onclick=()=>{if(!report)return;const blob=new Blob([JSON.stringify(report,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='Trading-Logic-Research-'+report.report_id+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
 $('#ai-form').onsubmit=async e=>{e.preventDefault();if(!report)return;const id=report.report_id;$('#summarize').disabled=true;$('#ai-status').textContent='Reading the report with your local model…';try{const result=await request('/api/summary',{model:$('#model').value,report_id:id});if(report.report_id!==result.report_id){$('#ai-status').textContent='Report changed; the older commentary was discarded.';return}$('#ai-summary').textContent=result.notes.summary;list($('#ai-risks'),result.notes.risks);list($('#ai-checks'),result.notes.next_checks);$('#ai-notes').hidden=false;$('#ai-status').textContent='Local model: '+result.notes.model+'. Commentary is unverified and has no execution authority.'}catch(err){$('#ai-status').textContent=err.message}finally{$('#summarize').disabled=false}};
 $('#summarize').disabled=true;request('/api/report').then(r=>{report=r;render()}).catch(e=>error('Could not load the local research server. Run start-scout.bat and open http://127.0.0.1:8002. '+e.message));
@@ -87,3 +87,31 @@ async function refreshPaper(){if(paperReadBusy||paperControlBusy)return;paperRea
 $('#paper-refresh').onclick=refreshPaper;
 $('#paper-toggle').onclick=async()=>{if(!paperSnapshot||paperSnapshot.configured===false||paperControlBusy)return;paperControlBusy=true;paperEpoch++;$('#paper-toggle').disabled=true;try{const r=await request('/api/paper/control',{paused:!paperSnapshot.state.paused});renderPaper(r)}catch(e){$('#paper-status').textContent=e.message}finally{paperControlBusy=false;$('#paper-toggle').disabled=false}};
 setInterval(()=>{if(!$('#forward').hidden&&!document.hidden)refreshPaper()},5000);
+
+let boardBusy=false,boardReadBusy=false;
+const boardOpen=new Map();
+function renderBoard(value){
+ const selected=$('#board-thread').value,select=$('#board-thread');select.replaceChildren();
+ const fresh=document.createElement('option');fresh.value='';fresh.textContent='New discussion';select.append(fresh);
+ for(const t of value.threads){const option=document.createElement('option');option.value=String(t.id);option.textContent='#'+t.id+' / '+t.title;select.append(option)}
+ select.value=value.threads.some(t=>String(t.id)===selected)?selected:'';
+ const roles=$('#board-roles');roles.replaceChildren();for(const name of Object.values(value.roles)){const badge=document.createElement('span');badge.textContent=name;roles.append(badge)}
+ const target=$('#board-threads');target.replaceChildren();
+ for(const t of value.threads){const thread=document.createElement('details');thread.classList.add('panel');thread.open=boardOpen.has(t.id)?boardOpen.get(t.id):t.id===value.threads[0].id;thread.ontoggle=()=>boardOpen.set(t.id,thread.open);
+ const title=document.createElement('summary');title.textContent='#'+t.id+' / '+t.title+' / '+t.status;thread.append(title);if(t.context&&t.context.report_id){const context=document.createElement('p');context.classList.add('caption');context.textContent='Snapshot '+t.context.report_id+' / '+t.context.source+' / captured '+t.context.captured_at+'. Archived evidence; no execution authority.';thread.append(context)}
+ for(const m of t.messages){const article=document.createElement('article');article.classList.add('board-message');
+ const meta=document.createElement('small');meta.textContent=(value.roles[m.author]||m.author)+' · '+m.mode+' · '+new Date(m.created).toLocaleString()+(m.reply_to?' · replies to #'+m.reply_to:'')+' · #'+m.id;
+ const text=document.createElement('p');text.textContent=m.content.summary||'';article.append(meta,text);
+ for(const key of ['risks','next_checks'])if(Array.isArray(m.content[key])&&m.content[key].length){const label=document.createElement('strong');label.textContent=key==='risks'?'Concerns':'Next checks';const items=document.createElement('ul');list(items,m.content[key]);article.append(label,items)}
+ thread.append(article)}target.append(thread)}
+ if(!value.threads.length){const empty=document.createElement('p');empty.textContent='No discussions yet. Post a note or run a research meeting.';target.append(empty)}
+}
+async function refreshBoard(){if(boardReadBusy)return;boardReadBusy=true;try{renderBoard(await request('/api/board'))}catch(e){$('#board-status').textContent=e.message}finally{boardReadBusy=false}}
+async function boardAction(review){if(boardBusy)return;boardBusy=true;$('#board-post').disabled=true;$('#board-review').disabled=true;
+ try{const thread=$('#board-thread').value,body=review?{question:$('#board-text').value,model:$('#board-model').value}:{text:$('#board-text').value};if(thread)body.thread_id=Number(thread);
+ const result=await request(review?'/api/board/review':'/api/board/post',body);await refreshBoard();$('#board-thread').value=String(result.thread_id);
+ $('#board-status').textContent=review?'Meeting started. Messages appear as each role finishes; local inference can take several minutes.':'Your note was saved. Select this discussion when asking the researchers to review it.';
+ }catch(e){$('#board-status').textContent=e.message}finally{boardBusy=false;$('#board-post').disabled=false;$('#board-review').disabled=false}}
+$('#board-form').onsubmit=e=>{e.preventDefault();boardAction(false)};
+$('#board-review').onclick=()=>boardAction(true);$('#board-refresh').onclick=refreshBoard;
+setInterval(()=>{if(!$('#board').hidden&&!document.hidden)refreshBoard()},5000);

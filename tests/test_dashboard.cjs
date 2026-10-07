@@ -34,5 +34,11 @@ async function importValue(value){document.querySelector('#training-report').fil
  assert.match(document.querySelector('#paper-source').textContent,/INVENTED LIVE DEMO/);
  await importValue({version:'0.1.0'});
  assert.match(document.querySelector('#training-status').textContent,/not a supported/);
- console.log('Training and forward account UI checks passed.');
+ context.renderBoard({roles:{steady:'Steady researcher'},threads:[{id:1,title:'<script>untrusted</script>',status:'complete',context:{report_id:'abc',source:'synthetic_demo',captured_at:'2026-10-07'},messages:[{id:2,author:'steady',mode:'local_ai_unverified',created:'2026-10-07',content:{summary:'<img onerror=bad>',risks:['Unverified'],next_checks:['More data']}}]}]});
+ const thread=document.querySelector('#board-threads').children[0];
+ assert.equal(thread.children[0].textContent,'#1 / <script>untrusted</script> / complete');
+ assert.match(thread.children[1].textContent,/synthetic_demo/);
+ assert.equal(thread.children[2].children[1].textContent,'<img onerror=bad>');
+ assert.equal(document.querySelector('#board-thread').children.length,2);
+ console.log('Training, forward account and message board UI checks passed.');
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -1,4 +1,4 @@
-# Trading Logic · 0.3.1
+# Trading Logic · 0.4.0
 
 **Start here:** [Windows setup guide](SETUP-WINDOWS.md) — dashboard, training, Ollama, and optional Robinhood quotes in order.
 
@@ -240,3 +240,33 @@ python app.py --paper-db runtime/crypto20-demo.sqlite
 ```
 
 These fictional forward observations do not measure earnings. For a read-only Robinhood forward experiment after credential setup, replace `--source demo` with `--source robinhood`, remove the accelerated interval/bar options, and choose a **new** database such as `runtime/crypto20-quotes.sqlite`. The balances and orders remain virtual. A frozen policy requires matching symbols, classes and settings; demo symbol policies cannot be applied to real BTC/ETH feeds. The forward account models bid/ask execution estimates, but broker minimums/increments remain unmodeled. No additional deposits or real orders are made.
+
+
+## Shared agent research board · 0.4.0
+
+Open **07 / Agent Board** in the local dashboard. Post notes in a new or existing discussion. Select an existing thread and ask a short question to start a new research meeting that carries its recent messages forward. The board stores archived report ID, data source, capture time, author, reply references and meeting status. Messages survive restarts in `runtime/board.sqlite`; neither a model response nor a board vote can change the forward account or send orders.
+
+The meeting roles are:
+
+| Role | Research responsibility |
+| --- | --- |
+| Steady strategy researcher | Evaluate trend, reversion, breakout and cash alternatives; repeatable net performance is the hypothesis. |
+| Momentum specialist | Research Ross Cameron-inspired stock momentum setups and identify missing scanner, float, catalyst, volume and execution evidence. |
+| Risk reviewer | Challenge preceding proposals, costs, correlated exposure, drawdown and stale observations. |
+| Coordinator | Describe disagreement and choose the next research checks, without execution authority. |
+
+Supply the exact downloaded Ollama model name, e.g. `qwen3.5:4b-q4_K_M`, to run four sequential reviews against one frozen evidence snapshot. Later roles read preceding role messages and the selected discussion's recent notes. This uses **one model with separate prompts**, not four independently trained models. Shared agreement is not independent confirmation. Replies are bounded, unverified commentary; model text is displayed as plain text and never executed. Existing local-model checks block cloud/remote models and redirects. Actual Ollama inference still needs to be verified on your host PC.
+
+Leave the model blank to exercise the board using clearly labeled **template** messages. Templates are fixed research reminders, not AI conversation or market analysis. Meetings run in the background; the visible board refreshes every five seconds. One meeting runs per dashboard process at a time. Errors retain earlier messages and mark the meeting failed. Restart marks unfinished meetings interrupted; it does not rerun them or restore a model's private reasoning. Run only **one dashboard process per board database**. Use `--board-db PATH` for a different board. Latest 50 threads and latest 100 messages per thread are displayed; older records remain in SQLite. Retain the runtime directory when updating the project. User notes are local, with no Discord/email posting.
+
+Each meeting includes the current historical report and a read-only snapshot of the configured forward paper account, including recent journal entries. These are archived observations, not a continuously updating trading feed. A forward worker still runs its existing configured provider and risk controls independently. Starting a meeting does not turn its research roles into trading agents. Meetings are manually requested; no autonomous scheduling or stock execution is attached.
+
+### Momentum research sequence
+
+1. Add timestamped stock OHLCV and point-in-time float/catalyst data; prevent future news and survivorship leakage.
+2. Specify a bull-flag detector's entry, invalidation and exit rules, then freeze them before unseen evaluation.
+3. Add a resistance-breakout candidate and compare each against cash and simpler momentum baselines.
+4. Model spreads, latency, partial fills, halts, gaps, minimum orders and session rules before considering broker execution.
+5. Evaluate quiet and active market periods separately; preserve a shared capital budget and hard risk controls if execution agents are introduced later.
+
+No Ross-style scanner or setup detector is implemented yet. Existing sampled midpoint crypto candles have unknown volume and cannot validate stock relative-volume, news or Level 2 strategies. Crypto momentum needs its own data and evaluation. Profitability and high-revenue days are not established by this board.
